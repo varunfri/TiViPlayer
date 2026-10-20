@@ -115,7 +115,7 @@ class HlsManifestProber {
       if (content.contains('#EXT-X-STREAM-INF') && maxRedirects > 0) {
         final variantUrl = _extractFirstVariantUrl(uri, content);
         if (variantUrl != null && variantUrl != streamUrl) {
-          return probeStream(
+          return await probeStream(
             variantUrl,
             customHeaders: customHeaders,
             maxRedirects: maxRedirects - 1,
