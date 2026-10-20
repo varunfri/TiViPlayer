@@ -3,6 +3,7 @@
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter)](https://flutter.dev)
 [![Platform](<https://img.shields.io/badge/Platform-Android%20%7C%20Android%20TV%20%7C%20macOS%20%7C%20Web%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux-green>)](#-supported-platforms)
 [![Release Workflow](<https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=githubactions>)](.github/workflows/release.yml)
+[![Release Status](https://github.com/varunfri/TiViPlayer/actions/workflows/release.yml/badge.svg)](https://github.com/varunfri/TiViPlayer/actions/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **TiviPlayer TV** (`tv_player_app`) is a high-performance, feature-rich IPTV, Live TV, and VOD player built with Flutter. Engineered specifically for a cinematic 10-foot TV experience (Android TV / Google TV / Fire TV) with full D-Pad remote control, while seamlessly responsive for desktop mouse/keyboard (macOS, Windows, Linux), touchscreens (Android Mobile, iOS), and modern web browsers (Chrome/Firefox/Safari via Shaka Player).
