@@ -1,9 +1,10 @@
 name: Release TiviPlayer TV
 
 on:
-  release:
-    types: [published]
-  workflow_dispatch: # Allows manual trigger from Actions tab
+  push:
+    tags:
+      - 'v*' # Triggers automatically when you push a version tag like v1.0.0, v1.0.1
+  workflow_dispatch: # Allows optional manual trigger from Actions tab
 
 permissions:
   contents: write
@@ -172,9 +173,11 @@ jobs:
           echo "Release Assets:"
           ls -lh all-artifacts/
 
-      - name: Attach Assets to GitHub Release
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: all-artifacts/*
           generate_release_notes: true
+          draft: false
+          prerelease: false

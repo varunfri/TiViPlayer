@@ -224,7 +224,7 @@ All interactive items feature high-contrast visual focus borders (`TvTheme.focus
 
 * [ ] 🤖 Continuous Integration & Automated Releases
 
-Automated releases are handled via GitHub Actions in [`.github/workflows/release.yml`](.github/workflows/release.yml). Publishing a new Release on GitHub (or manual trigger from the Actions tab) triggers parallel matrix builds:
+Automated releases are handled via GitHub Actions in [`.github/workflows/release.yml`](.github/workflows/release.yml). Simply pushing any version tag (e.g. `git tag v1.0.1 && git push origin v1.0.1`) automatically triggers parallel matrix builds and publishes a complete GitHub Release with all compiled assets attached:
 
 - **Android**: Release APKs split by ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`) + Universal APK.
 - **macOS**: Signed `.dmg` disk image installer packaged directly with `hdiutil`.
