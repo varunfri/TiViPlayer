@@ -1,0 +1,8 @@
+# Example Android Keystore configuration for tv_player_app
+# Copy this file to `key.properties` (in this same android/ directory) and populate with your credentials.
+# Note: `key.properties`, `*.keystore`, and `*.jks` are already gitignored.
+
+storePassword=your_keystore_password
+keyPassword=your_key_password
+keyAlias=your_key_alias
+storeFile=app/upload-keystore.jks
