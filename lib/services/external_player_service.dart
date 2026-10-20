@@ -56,7 +56,9 @@ class ExternalPlayerService {
     for (final b in _macBrowsers) {
       try {
         if (Directory(b.appPath).existsSync() ||
-            Directory('${Platform.environment['HOME']}/Applications/${b.appName}.app').existsSync()) {
+            Directory(
+              '${Platform.environment['HOME']}/Applications/${b.appName}.app',
+            ).existsSync()) {
           installed.add(b);
         }
       } catch (_) {}
@@ -69,7 +71,9 @@ class ExternalPlayerService {
     if (!AppPlatform.isMacOS) return false;
     try {
       return Directory('/Applications/VLC.app').existsSync() ||
-          Directory('${Platform.environment['HOME']}/Applications/VLC.app').existsSync();
+          Directory(
+            '${Platform.environment['HOME']}/Applications/VLC.app',
+          ).existsSync();
     } catch (_) {
       return false;
     }
@@ -83,8 +87,11 @@ class ExternalPlayerService {
     required Channel channel,
     String? preferredBrowser,
   }) async {
-    final playerUrl = channel.inAppWebPlayerUrl ?? channel.webPlayerUrl ?? channel.streamUrl;
-    debugPrint('[ExternalPlayerService] Launching DRM Player for #${channel.channelNumber}: $playerUrl');
+    final playerUrl =
+        channel.inAppWebPlayerUrl ?? channel.webPlayerUrl ?? channel.streamUrl;
+    debugPrint(
+      '[ExternalPlayerService] Launching DRM Player for #${channel.channelNumber}: $playerUrl',
+    );
 
     bool launched = false;
     String launchedVia = 'Default Browser';
@@ -92,7 +99,9 @@ class ExternalPlayerService {
     if (AppPlatform.isMacOS) {
       final browsersToTry = <BrowserInfo>[];
       if (preferredBrowser != null) {
-        final match = _macBrowsers.where((b) => b.appName.toLowerCase() == preferredBrowser.toLowerCase());
+        final match = _macBrowsers.where(
+          (b) => b.appName.toLowerCase() == preferredBrowser.toLowerCase(),
+        );
         if (match.isNotEmpty) browsersToTry.add(match.first);
       }
 
@@ -122,13 +131,19 @@ class ExternalPlayerService {
           if (res.exitCode == 0) {
             launched = true;
             launchedVia = browser.name;
-            debugPrint('[ExternalPlayerService] Successfully launched via ${browser.name} App Mode');
+            debugPrint(
+              '[ExternalPlayerService] Successfully launched via ${browser.name} App Mode',
+            );
             break;
           } else {
-            debugPrint('[ExternalPlayerService] ${browser.name} exitCode: ${res.exitCode}, stderr: ${res.stderr}');
+            debugPrint(
+              '[ExternalPlayerService] ${browser.name} exitCode: ${res.exitCode}, stderr: ${res.stderr}',
+            );
           }
         } catch (e) {
-          debugPrint('[ExternalPlayerService] Process.run error for ${browser.name}: $e');
+          debugPrint(
+            '[ExternalPlayerService] Process.run error for ${browser.name}: $e',
+          );
         }
       }
 
@@ -161,9 +176,15 @@ class ExternalPlayerService {
 
     if (context != null && context.mounted) {
       if (launched) {
-        TvToast.info(context, 'Launched #${channel.channelNumber} in $launchedVia');
+        TvToast.info(
+          context,
+          'Launched #${channel.channelNumber} in $launchedVia',
+        );
       } else {
-        TvToast.error(context, 'Failed to launch external player. Please copy the URL.');
+        TvToast.error(
+          context,
+          'Failed to launch external player. Please copy the URL.',
+        );
       }
     }
 

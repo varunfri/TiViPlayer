@@ -26,7 +26,9 @@ class ScreenWakeService {
     if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
       try {
         await SystemPipService.setKeepScreenOn(enable);
-        debugPrint('[ScreenWakeService] Native Android keep-screen-on toggled: $enable');
+        debugPrint(
+          '[ScreenWakeService] Native Android keep-screen-on toggled: $enable',
+        );
       } catch (e) {
         debugPrint('[ScreenWakeService] Native keepScreenOn error: $e');
       }

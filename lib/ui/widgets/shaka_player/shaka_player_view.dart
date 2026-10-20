@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'shaka_player_stub.dart'
-    if (dart.library.html) 'shaka_player_web.dart' as impl;
+    if (dart.library.html) 'shaka_player_web.dart'
+    as impl;
 
 class ShakaPlayerView extends StatelessWidget {
   final String url;

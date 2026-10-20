@@ -4,11 +4,13 @@ import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 import 'providers/tv_state_provider.dart';
 import 'services/app_platform.dart';
+import 'services/http_overrides.dart';
 import 'ui/screens/tv_home_screen.dart';
 import 'ui/theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  setupHttpOverrides();
   if (AppPlatform.isDesktop) {
     MediaKit.ensureInitialized();
     await windowManager.ensureInitialized();

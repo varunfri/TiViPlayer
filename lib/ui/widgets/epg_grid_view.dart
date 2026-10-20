@@ -44,7 +44,8 @@ class _EpgGridViewState extends State<EpgGridView> {
 
   void _scrollToActiveChannel() {
     if (!_verticalChannelsController.hasClients) return;
-    final activeId = widget.tvState.activePlayingChannel?.id ??
+    final activeId =
+        widget.tvState.activePlayingChannel?.id ??
         widget.tvState.selectedChannel?.id;
     if (activeId == null) return;
     final index = widget.tvState.channels.indexWhere((c) => c.id == activeId);
@@ -121,15 +122,26 @@ class _EpgGridViewState extends State<EpgGridView> {
                         ),
                         if (widget.tvState.selectedChannel?.hasDrm == true)
                           Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
                             decoration: BoxDecoration(
                               color: Colors.amber.withValues(alpha: 0.2),
                               borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.amber.withValues(alpha: 0.6)),
+                              border: Border.all(
+                                color: Colors.amber.withValues(alpha: 0.6),
+                              ),
                             ),
                             child: Text(
-                              widget.tvState.selectedChannel!.drmType?.toUpperCase() ?? 'DRM',
-                              style: const TextStyle(color: Colors.amber, fontSize: 10, fontWeight: FontWeight.bold),
+                              widget.tvState.selectedChannel!.drmType
+                                      ?.toUpperCase() ??
+                                  'DRM',
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
                         Text(
@@ -146,7 +158,8 @@ class _EpgGridViewState extends State<EpgGridView> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      widget.tvState.currentProgram?.title ?? 'No Program Information',
+                      widget.tvState.currentProgram?.title ??
+                          'No Program Information',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleLarge?.copyWith(

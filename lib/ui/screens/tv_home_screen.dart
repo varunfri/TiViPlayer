@@ -30,6 +30,7 @@ class TvHomeScreen extends StatefulWidget {
 class _TvHomeScreenState extends State<TvHomeScreen> {
   final TextEditingController _searchController = TextEditingController();
   final FocusNode _keyboardFocusNode = FocusNode();
+  final FocusNode _searchFocusNode = FocusNode();
   final GlobalKey _playerGlobalKey = GlobalKey();
 
   bool _showOsdInFullscreen = false;
@@ -37,6 +38,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   Timer? _osdHideTimer;
   int? _lastPlayedChannelId;
   int? _lastSelectedGroupId;
+  bool _hasPlayerError = false;
+
+  String _numericChannelBuffer = '';
+  Timer? _numericChannelTimer;
 
   final ScrollController _channelsScrollController = ScrollController();
   final ScrollController _groupsScrollController = ScrollController();
@@ -45,6 +50,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   @override
   void initState() {
     super.initState();
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
     if (AppPlatform.isMobile) {
       SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     }
@@ -115,19 +121,23 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       ]);
       SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     }
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     SystemPipService.removePipListener(_onPipChanged);
     _searchController.dispose();
     _keyboardFocusNode.dispose();
+    _searchFocusNode.dispose();
     _channelsScrollController.dispose();
     _groupsScrollController.dispose();
     _mobileCategoriesScrollController.dispose();
     _osdHideTimer?.cancel();
+    _numericChannelTimer?.cancel();
     super.dispose();
   }
 
   void _scrollToActiveChannel(TvStateProvider tvState) {
     if (!_channelsScrollController.hasClients) return;
-    final activeId = tvState.activePlayingChannel?.id ?? tvState.selectedChannel?.id;
+    final activeId =
+        tvState.activePlayingChannel?.id ?? tvState.selectedChannel?.id;
     if (activeId == null) return;
     final index = tvState.channels.indexWhere((c) => c.id == activeId);
     if (index >= 0) {
@@ -187,57 +197,414 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     });
   }
 
-  void _handleKeyEvent(KeyEvent event) {
-    if (event is KeyDownEvent) {
-      final tvState = context.read<TvStateProvider>();
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (!mounted) return false;
 
-      if (event.logicalKey == LogicalKeyboardKey.escape ||
-          event.logicalKey == LogicalKeyboardKey.goBack) {
-        if (tvState.showBottomChannelList) {
-          tvState.setBottomChannelList(false);
-        } else if (_showOsdInFullscreen) {
-          setState(() => _showOsdInFullscreen = false);
-        } else if (!tvState.isEpgOverlayVisible) {
-          _exitFullscreenPortrait(tvState);
-        } else if (tvState.isPlaying) {
-          tvState.enterSystemPip(context: context);
-        }
-      } else if (event.logicalKey == LogicalKeyboardKey.keyF) {
-        _toggleFullscreenOrientation(tvState);
-      } else if (event.logicalKey == LogicalKeyboardKey.keyC) {
-        tvState.toggleBottomChannelList();
-      } else if (event.logicalKey == LogicalKeyboardKey.keyG) {
-        tvState.cycleViewMode();
-      } else if (event.logicalKey == LogicalKeyboardKey.keyA) {
-        tvState.cycleScaleMode();
-      } else if (event.logicalKey == LogicalKeyboardKey.keyM) {
-        tvState.toggleMute();
-        _triggerOsd();
-      } else if (event.logicalKey == LogicalKeyboardKey.space ||
-          event.logicalKey == LogicalKeyboardKey.keyS) {
-        tvState.togglePlayPause();
-        _triggerOsd();
-      } else if (event.logicalKey == LogicalKeyboardKey.arrowUp &&
-          !tvState.isEpgOverlayVisible) {
-        tvState.playPreviousChannel();
-        _triggerOsd();
-      } else if (event.logicalKey == LogicalKeyboardKey.arrowDown &&
-          !tvState.isEpgOverlayVisible) {
-        tvState.playNextChannel();
-        _triggerOsd();
-      } else if (event.logicalKey == LogicalKeyboardKey.keyR) {
-        showDialog(context: context, builder: (_) => const RecordingsScreen());
-      } else if (event.logicalKey == LogicalKeyboardKey.keyP) {
-        tvState.enterSystemPip(context: context);
-      } else if (event.logicalKey == LogicalKeyboardKey.keyO ||
-                 event.logicalKey == LogicalKeyboardKey.keyS ||
-                 event.logicalKey == LogicalKeyboardKey.keyQ) {
-        showDialog(
-          context: context,
-          builder: (_) => const StreamSettingsDialog(initialTabIndex: 0),
-        );
+    // Check if another route/dialog is currently active on top of TvHomeScreen
+    final modalRoute = ModalRoute.of(context);
+    if (modalRoute != null && !modalRoute.isCurrent) {
+      return false;
+    }
+
+    // Check if an editable text field (such as search) currently has input focus
+    final primaryFocus = FocusManager.instance.primaryFocus;
+    final isTextFieldFocused =
+        primaryFocus?.context?.widget is EditableText ||
+        _searchFocusNode.hasFocus;
+
+    if (isTextFieldFocused) {
+      // In text fields, handle Escape to clear and dismiss focus
+      if (event is KeyDownEvent &&
+          (event.logicalKey == LogicalKeyboardKey.escape ||
+              event.logicalKey == LogicalKeyboardKey.goBack)) {
+        _searchController.clear();
+        context.read<TvStateProvider>().setSearchQuery('');
+        _searchFocusNode.unfocus();
+        _keyboardFocusNode.requestFocus();
+        return true;
+      }
+      return false;
+    }
+
+    // Only process KeyDown and KeyRepeat events for triggering shortcuts
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      if (_isShortcutKey(event.logicalKey)) {
+        return true;
+      }
+      return false;
+    }
+
+    final tvState = context.read<TvStateProvider>();
+    final key = event.logicalKey;
+
+    // If player is currently in error state (No Signal / DRM Error),
+    // allow navigation keys (Arrows, Tab) and action keys (Enter, Space, Select)
+    // to pass directly through to the error card buttons for remote / keyboard control!
+    if (_hasPlayerError) {
+      if (key == LogicalKeyboardKey.space ||
+          key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.arrowUp ||
+          key == LogicalKeyboardKey.arrowDown ||
+          key == LogicalKeyboardKey.arrowLeft ||
+          key == LogicalKeyboardKey.arrowRight ||
+          key == LogicalKeyboardKey.tab) {
+        return false;
       }
     }
+
+    // 1. BACK / ESCAPE DISMISSAL HIERARCHY
+    if (key == LogicalKeyboardKey.escape || key == LogicalKeyboardKey.goBack) {
+      if (tvState.showBottomChannelList) {
+        tvState.setBottomChannelList(false);
+        return true;
+      } else if (_showOsdInFullscreen) {
+        setState(() => _showOsdInFullscreen = false);
+        return true;
+      } else if (!tvState.isEpgOverlayVisible) {
+        _exitFullscreenPortrait(tvState);
+        return true;
+      } else if (tvState.isDesktopPip) {
+        tvState.exitDesktopPip();
+        return true;
+      } else if (tvState.isPlaying) {
+        if (AppPlatform.isDesktop) {
+          tvState.toggleDesktopPip();
+        } else {
+          tvState.enterSystemPip(context: context);
+        }
+        return true;
+      }
+      return true;
+    }
+
+    // 2. PLAY / PAUSE
+    if (key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.keyK ||
+        key == LogicalKeyboardKey.mediaPlayPause ||
+        key == LogicalKeyboardKey.mediaPlay ||
+        key == LogicalKeyboardKey.mediaPause) {
+      tvState.togglePlayPause();
+      _triggerOsd();
+      return true;
+    }
+
+    // 3. MUTE / UNMUTE
+    if (key == LogicalKeyboardKey.keyM ||
+        key == LogicalKeyboardKey.audioVolumeMute) {
+      tvState.toggleMute();
+      _triggerOsd();
+      return true;
+    }
+
+    // 4. VOLUME UP
+    if (key == LogicalKeyboardKey.equal ||
+        key == LogicalKeyboardKey.numpadAdd ||
+        key == LogicalKeyboardKey.audioVolumeUp ||
+        key == LogicalKeyboardKey.bracketRight) {
+      _adjustVolume(tvState, 0.05);
+      return true;
+    }
+
+    // 5. VOLUME DOWN
+    if (key == LogicalKeyboardKey.minus ||
+        key == LogicalKeyboardKey.numpadSubtract ||
+        key == LogicalKeyboardKey.audioVolumeDown ||
+        key == LogicalKeyboardKey.bracketLeft) {
+      _adjustVolume(tvState, -0.05);
+      return true;
+    }
+
+    // 6. FULLSCREEN TOGGLE (F or F11, without Command/Control modifiers)
+    if ((key == LogicalKeyboardKey.keyF &&
+            !HardwareKeyboard.instance.isMetaPressed &&
+            !HardwareKeyboard.instance.isControlPressed) ||
+        key == LogicalKeyboardKey.f11) {
+      _toggleFullscreenOrientation(tvState);
+      return true;
+    }
+
+    // 7. BOTTOM CHANNEL DRAWER / QUICK SWITCHER
+    if (key == LogicalKeyboardKey.keyC) {
+      tvState.toggleBottomChannelList();
+      return true;
+    }
+
+    // 8. GUIDE / EPG OVERLAY TOGGLE
+    if (key == LogicalKeyboardKey.keyG ||
+        key == LogicalKeyboardKey.keyE ||
+        key == LogicalKeyboardKey.tab) {
+      tvState.toggleEpgOverlay();
+      return true;
+    }
+
+    // 9. CYCLE VIEW MODE
+    if (key == LogicalKeyboardKey.keyV) {
+      tvState.cycleViewMode();
+      _triggerOsd();
+      return true;
+    }
+
+    // 10. CYCLE ASPECT RATIO / SCALE MODE
+    if (key == LogicalKeyboardKey.keyA) {
+      tvState.cycleScaleMode();
+      _triggerOsd();
+      return true;
+    }
+
+    // 11. RECORDINGS SCREEN
+    if (key == LogicalKeyboardKey.keyR) {
+      showDialog(context: context, builder: (_) => const RecordingsScreen());
+      return true;
+    }
+
+    // 12. SETTINGS / STREAM OPTIONS
+    if (key == LogicalKeyboardKey.keyO ||
+        (key == LogicalKeyboardKey.comma &&
+            (HardwareKeyboard.instance.isMetaPressed ||
+                HardwareKeyboard.instance.isControlPressed))) {
+      showDialog(
+        context: context,
+        builder: (_) => const StreamSettingsDialog(initialTabIndex: 0),
+      );
+      return true;
+    }
+
+    // 13. PICTURE-IN-PICTURE (PiP)
+    if (key == LogicalKeyboardKey.keyP) {
+      if (AppPlatform.isDesktop) {
+        tvState.toggleDesktopPip();
+      } else {
+        tvState.enterSystemPip(context: context);
+      }
+      return true;
+    }
+
+    // 14. TOGGLE FAVORITE / BOOKMARK
+    if (key == LogicalKeyboardKey.keyB || key == LogicalKeyboardKey.keyD) {
+      final ch = tvState.activePlayingChannel ?? tvState.selectedChannel;
+      if (ch != null) {
+        tvState.toggleFavorite(ch);
+        TvToast.info(
+          context,
+          ch.isFavorite ? 'Added to favorites' : 'Removed from favorites',
+        );
+      }
+      return true;
+    }
+
+    // 15. SEARCH ACTIVATION
+    if (key == LogicalKeyboardKey.slash ||
+        (key == LogicalKeyboardKey.keyF &&
+            (HardwareKeyboard.instance.isMetaPressed ||
+                HardwareKeyboard.instance.isControlPressed))) {
+      if (!tvState.isEpgOverlayVisible) {
+        tvState.toggleEpgOverlay();
+      }
+      _searchFocusNode.requestFocus();
+      return true;
+    }
+
+    // 16. CHANNEL UP / DOWN (PageUp / PageDown, ChannelUp / ChannelDown)
+    if (key == LogicalKeyboardKey.pageUp ||
+        key == LogicalKeyboardKey.channelUp) {
+      tvState.playPreviousChannel();
+      _triggerOsd();
+      return true;
+    }
+    if (key == LogicalKeyboardKey.pageDown ||
+        key == LogicalKeyboardKey.channelDown ||
+        key == LogicalKeyboardKey.keyN) {
+      tvState.playNextChannel();
+      _triggerOsd();
+      return true;
+    }
+
+    // 17. VOD DEDICATED SEEK KEYS (J / L / MediaRewind / MediaFastForward) - works in all views!
+    if (tvState.isVodStream) {
+      if (key == LogicalKeyboardKey.keyJ ||
+          key == LogicalKeyboardKey.mediaRewind) {
+        tvState.seekRelative(const Duration(seconds: -10));
+        _triggerOsd();
+        TvToast.info(context, '<< 10s (${tvState.formattedPlaybackPosition})');
+        return true;
+      } else if (key == LogicalKeyboardKey.keyL ||
+          key == LogicalKeyboardKey.mediaFastForward) {
+        tvState.seekRelative(const Duration(seconds: 10));
+        _triggerOsd();
+        TvToast.info(context, '>> 10s (${tvState.formattedPlaybackPosition})');
+        return true;
+      }
+    }
+
+    // 18. FULLSCREEN ARROW KEYS & ENTER
+    if (!tvState.isEpgOverlayVisible) {
+      if (key == LogicalKeyboardKey.arrowUp) {
+        tvState.playPreviousChannel();
+        _triggerOsd();
+        return true;
+      } else if (key == LogicalKeyboardKey.arrowDown) {
+        tvState.playNextChannel();
+        _triggerOsd();
+        return true;
+      } else if (key == LogicalKeyboardKey.arrowLeft) {
+        if (tvState.isVodStream) {
+          tvState.seekRelative(const Duration(seconds: -10));
+          _triggerOsd();
+          TvToast.info(
+            context,
+            '<< 10s (${tvState.formattedPlaybackPosition})',
+          );
+        } else {
+          _adjustVolume(tvState, -0.05);
+        }
+        return true;
+      } else if (key == LogicalKeyboardKey.arrowRight) {
+        if (tvState.isVodStream) {
+          tvState.seekRelative(const Duration(seconds: 10));
+          _triggerOsd();
+          TvToast.info(
+            context,
+            '>> 10s (${tvState.formattedPlaybackPosition})',
+          );
+        } else {
+          _adjustVolume(tvState, 0.05);
+        }
+        return true;
+      } else if (key == LogicalKeyboardKey.enter ||
+          key == LogicalKeyboardKey.select ||
+          key == LogicalKeyboardKey.keyI) {
+        _triggerOsd();
+        return true;
+      }
+    }
+
+    // 18. DIRECT NUMERIC CHANNEL TUNING (0-9)
+    final digit = _getDigitFromKey(key);
+    if (digit != null) {
+      _handleNumericInput(digit, tvState);
+      return true;
+    }
+
+    return false;
+  }
+
+  bool _isShortcutKey(LogicalKeyboardKey key) {
+    if (_hasPlayerError) {
+      if (key == LogicalKeyboardKey.space || key == LogicalKeyboardKey.tab) {
+        return false;
+      }
+    }
+    return key == LogicalKeyboardKey.space ||
+        key == LogicalKeyboardKey.keyK ||
+        key == LogicalKeyboardKey.keyM ||
+        key == LogicalKeyboardKey.keyF ||
+        key == LogicalKeyboardKey.f11 ||
+        key == LogicalKeyboardKey.keyC ||
+        key == LogicalKeyboardKey.keyG ||
+        key == LogicalKeyboardKey.keyE ||
+        key == LogicalKeyboardKey.tab ||
+        key == LogicalKeyboardKey.keyV ||
+        key == LogicalKeyboardKey.keyA ||
+        key == LogicalKeyboardKey.keyR ||
+        key == LogicalKeyboardKey.keyO ||
+        key == LogicalKeyboardKey.keyP ||
+        key == LogicalKeyboardKey.keyB ||
+        key == LogicalKeyboardKey.keyD ||
+        key == LogicalKeyboardKey.slash ||
+        key == LogicalKeyboardKey.escape ||
+        key == LogicalKeyboardKey.goBack ||
+        key == LogicalKeyboardKey.equal ||
+        key == LogicalKeyboardKey.minus ||
+        key == LogicalKeyboardKey.bracketLeft ||
+        key == LogicalKeyboardKey.bracketRight ||
+        key == LogicalKeyboardKey.pageUp ||
+        key == LogicalKeyboardKey.pageDown ||
+        key == LogicalKeyboardKey.keyN ||
+        key == LogicalKeyboardKey.keyJ ||
+        key == LogicalKeyboardKey.keyL ||
+        key == LogicalKeyboardKey.keyI ||
+        key == LogicalKeyboardKey.mediaPlayPause ||
+        key == LogicalKeyboardKey.mediaPlay ||
+        key == LogicalKeyboardKey.mediaPause ||
+        key == LogicalKeyboardKey.mediaRewind ||
+        key == LogicalKeyboardKey.mediaFastForward ||
+        key == LogicalKeyboardKey.audioVolumeUp ||
+        key == LogicalKeyboardKey.audioVolumeDown ||
+        key == LogicalKeyboardKey.audioVolumeMute ||
+        key == LogicalKeyboardKey.channelUp ||
+        key == LogicalKeyboardKey.channelDown ||
+        key == LogicalKeyboardKey.numpadAdd ||
+        key == LogicalKeyboardKey.numpadSubtract;
+  }
+
+  void _adjustVolume(TvStateProvider tvState, double delta) {
+    final newVol = (tvState.volume + delta).clamp(0.0, 1.0);
+    tvState.setVolume(newVol);
+    _triggerOsd();
+    TvToast.info(context, 'Volume: ${(newVol * 100).round()}%');
+  }
+
+  int? _getDigitFromKey(LogicalKeyboardKey key) {
+    if (key == LogicalKeyboardKey.digit0 || key == LogicalKeyboardKey.numpad0) {
+      return 0;
+    }
+    if (key == LogicalKeyboardKey.digit1 || key == LogicalKeyboardKey.numpad1) {
+      return 1;
+    }
+    if (key == LogicalKeyboardKey.digit2 || key == LogicalKeyboardKey.numpad2) {
+      return 2;
+    }
+    if (key == LogicalKeyboardKey.digit3 || key == LogicalKeyboardKey.numpad3) {
+      return 3;
+    }
+    if (key == LogicalKeyboardKey.digit4 || key == LogicalKeyboardKey.numpad4) {
+      return 4;
+    }
+    if (key == LogicalKeyboardKey.digit5 || key == LogicalKeyboardKey.numpad5) {
+      return 5;
+    }
+    if (key == LogicalKeyboardKey.digit6 || key == LogicalKeyboardKey.numpad6) {
+      return 6;
+    }
+    if (key == LogicalKeyboardKey.digit7 || key == LogicalKeyboardKey.numpad7) {
+      return 7;
+    }
+    if (key == LogicalKeyboardKey.digit8 || key == LogicalKeyboardKey.numpad8) {
+      return 8;
+    }
+    if (key == LogicalKeyboardKey.digit9 || key == LogicalKeyboardKey.numpad9) {
+      return 9;
+    }
+    return null;
+  }
+
+  void _handleNumericInput(int digit, TvStateProvider tvState) {
+    _numericChannelBuffer += digit.toString();
+    _numericChannelTimer?.cancel();
+
+    TvToast.info(context, 'Channel: $_numericChannelBuffer');
+
+    _numericChannelTimer = Timer(const Duration(milliseconds: 1200), () {
+      if (!mounted) return;
+      final targetNum = int.tryParse(_numericChannelBuffer);
+      _numericChannelBuffer = '';
+      if (targetNum != null) {
+        final found = tvState.channels.cast<Channel?>().firstWhere(
+          (c) => c?.channelNumber == targetNum,
+          orElse: () => null,
+        );
+        if (found != null) {
+          tvState.playChannel(found);
+          TvToast.info(
+            context,
+            'Tuned to #${found.channelNumber} ${found.name}',
+          );
+        } else {
+          TvToast.warning(context, 'Channel #$targetNum not found');
+        }
+      }
+    });
   }
 
   @override
@@ -256,6 +623,13 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
       isMuted: tvState.isMuted,
       scaleMode: tvState.scaleMode,
       isPlaying: tvState.isPlaying,
+      onErrorChanged: (hasError) {
+        if (mounted && _hasPlayerError != hasError) {
+          setState(() {
+            _hasPlayerError = hasError;
+          });
+        }
+      },
     );
 
     // When desktop floating PiP is active (always-on-top window over other apps)
@@ -276,6 +650,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     final currentGroupId = tvState.selectedGroup?.id;
     if (currentChannelId != null && currentChannelId != _lastPlayedChannelId) {
       _lastPlayedChannelId = currentChannelId;
+      _hasPlayerError = false;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) {
           if (!tvState.isEpgOverlayVisible) {
@@ -320,23 +695,30 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           return;
         }
       },
-      child: KeyboardListener(
-        focusNode: _keyboardFocusNode,
-        autofocus: true,
-        onKeyEvent: _handleKeyEvent,
-        child: Scaffold(
-          backgroundColor: TvTheme.background,
-          body: isMobilePortrait
-              ? _buildMobilePortraitBody(context, tvState, playerWidget)
-              : _buildWidescreenBody(
-                  context,
-                  tvState,
-                  playerWidget,
-                  isFloatingPip,
-                  isMobile,
-                  isTablet,
-                  size,
-                ),
+      child: Shortcuts(
+        shortcuts: <ShortcutActivator, Intent>{
+          const SingleActivator(LogicalKeyboardKey.space):
+              const DoNothingAndStopPropagationIntent(),
+        },
+        child: Focus(
+          focusNode: _keyboardFocusNode,
+          autofocus: true,
+          canRequestFocus: true,
+          descendantsAreFocusable: true,
+          child: Scaffold(
+            backgroundColor: TvTheme.background,
+            body: isMobilePortrait
+                ? _buildMobilePortraitBody(context, tvState, playerWidget)
+                : _buildWidescreenBody(
+                    context,
+                    tvState,
+                    playerWidget,
+                    isFloatingPip,
+                    isMobile,
+                    isTablet,
+                    size,
+                  ),
+          ),
         ),
       ),
     );
@@ -360,7 +742,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 child: Stack(
                   children: [
                     Positioned.fill(child: playerWidget),
-                    if (tvState.isPlaying)
+                    if (tvState.isPlaying && !_hasPlayerError)
                       Positioned.fill(
                         child: GestureDetector(
                           behavior: HitTestBehavior.translucent,
@@ -368,7 +750,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                           onDoubleTap: () => _enterFullscreenLandscape(tvState),
                         ),
                       ),
-                    _buildMobilePlayerOverlay(context, tvState),
+                    if (!_hasPlayerError)
+                      _buildMobilePlayerOverlay(context, tvState),
                   ],
                 ),
               ),
@@ -445,7 +828,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
     return Stack(
       children: [
         Positioned.fill(child: playerWidget),
-        if (tvState.isPlaying)
+        if (tvState.isPlaying && !_hasPlayerError)
           Positioned.fill(
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
@@ -465,7 +848,9 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               onClose: () => tvState.setBottomChannelList(false),
             ),
           ),
-        if (_showOsdInFullscreen && !tvState.showBottomChannelList)
+        if (_showOsdInFullscreen &&
+            !tvState.showBottomChannelList &&
+            !_hasPlayerError)
           Positioned(
             left: 0,
             right: 0,
@@ -475,6 +860,22 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               currentProgram: tvState.currentProgram,
               tvState: tvState,
               onOpenGuide: () => _exitFullscreenPortrait(tvState),
+            ),
+          ),
+        if (!_showOsdInFullscreen &&
+            !tvState.showBottomChannelList &&
+            tvState.isVodStream)
+          Positioned(
+            left: 0,
+            right: 0,
+            bottom: 0,
+            height: 3,
+            child: LinearProgressIndicator(
+              value: tvState.playbackProgressFraction,
+              backgroundColor: Colors.black.withValues(alpha: 0.4),
+              valueColor: const AlwaysStoppedAnimation<Color>(
+                TvTheme.primaryAccent,
+              ),
             ),
           ),
         if (!_showOsdInFullscreen && !tvState.showBottomChannelList)
@@ -597,12 +998,17 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                     vertical: 2,
                   ),
                   decoration: BoxDecoration(
-                    color: Colors.redAccent,
+                    gradient: tvState.isVodStream
+                        ? const LinearGradient(
+                            colors: [Color(0xFF8B5CF6), Color(0xFF06B6D4)],
+                          )
+                        : null,
+                    color: tvState.isVodStream ? null : Colors.redAccent,
                     borderRadius: BorderRadius.circular(4),
                   ),
-                  child: const Text(
-                    'LIVE',
-                    style: TextStyle(
+                  child: Text(
+                    tvState.isVodStream ? 'VOD' : 'LIVE',
+                    style: const TextStyle(
                       color: Colors.white,
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
@@ -691,6 +1097,49 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
             ),
           ),
 
+          // VOD Progress Bar for Mobile portrait player
+          if (tvState.isVodStream)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
+              child: Row(
+                children: [
+                  Text(
+                    tvState.formattedPlaybackPosition,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(2),
+                      child: LinearProgressIndicator(
+                        value: tvState.playbackProgressFraction,
+                        backgroundColor: Colors.white24,
+                        valueColor: const AlwaysStoppedAnimation<Color>(
+                          TvTheme.primaryAccent,
+                        ),
+                        minHeight: 3.5,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    tvState.formattedPlaybackDuration,
+                    style: const TextStyle(
+                      color: Colors.white70,
+                      fontSize: 10,
+                      fontWeight: FontWeight.bold,
+                      shadows: [Shadow(color: Colors.black, blurRadius: 4)],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
           // Bottom Quick Bar: Scale Mode & Play/Pause indicator
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -758,7 +1207,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
   ) {
     return MouseRegion(
       onHover: (_) {
-        if (!tvState.isEpgOverlayVisible) {
+        if (!tvState.isEpgOverlayVisible && !_hasPlayerError) {
           _triggerOsd();
         }
       },
@@ -767,7 +1216,10 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           // 1. FULL BACKGROUND VIDEO PLAYER (when not in floating PiP mode)
           if (!isFloatingPip) Positioned.fill(child: playerWidget),
           // 1.1 TRANSPARENT GESTURE DETECTOR ON TOP OF VIDEO
-          if (!isFloatingPip && !tvState.isEpgOverlayVisible && tvState.isPlaying)
+          if (!isFloatingPip &&
+              !tvState.isEpgOverlayVisible &&
+              tvState.isPlaying &&
+              !_hasPlayerError)
             Positioned.fill(
               child: GestureDetector(
                 behavior: HitTestBehavior.translucent,
@@ -939,7 +1391,8 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
           // 5. ON-SCREEN DISPLAY (OSD) IN FULLSCREEN MODE
           if (!tvState.isEpgOverlayVisible &&
               _showOsdInFullscreen &&
-              !tvState.showBottomChannelList)
+              !tvState.showBottomChannelList &&
+              !_hasPlayerError)
             Positioned(
               left: 0,
               right: 0,
@@ -949,6 +1402,26 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
                 currentProgram: tvState.currentProgram,
                 tvState: tvState,
                 onOpenGuide: () => _exitFullscreenPortrait(tvState),
+              ),
+            ),
+
+          // 5.1 SUBTLE VOD PROGRESS LINE WHEN OSD IS HIDDEN
+          if (!tvState.isEpgOverlayVisible &&
+              !_showOsdInFullscreen &&
+              !tvState.showBottomChannelList &&
+              !_hasPlayerError &&
+              tvState.isVodStream)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: 3,
+              child: LinearProgressIndicator(
+                value: tvState.playbackProgressFraction,
+                backgroundColor: Colors.black.withValues(alpha: 0.4),
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  TvTheme.primaryAccent,
+                ),
               ),
             ),
 
@@ -1649,6 +2122,7 @@ class _TvHomeScreenState extends State<TvHomeScreen> {
               height: 40,
               child: TextField(
                 controller: _searchController,
+                focusNode: _searchFocusNode,
                 onChanged: (val) => tvState.setSearchQuery(val),
                 decoration: InputDecoration(
                   hintText: 'Search channels or genres...',

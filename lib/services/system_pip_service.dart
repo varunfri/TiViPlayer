@@ -8,7 +8,9 @@ import 'package:flutter/services.dart';
 class SystemPipService {
   static const MethodChannel _channel = MethodChannel('com.app.tvplayer/pip');
 
-  static final ValueNotifier<bool> inPipModeNotifier = ValueNotifier<bool>(false);
+  static final ValueNotifier<bool> inPipModeNotifier = ValueNotifier<bool>(
+    false,
+  );
   static bool get inPipMode => inPipModeNotifier.value;
 
   static bool _initialized = false;
@@ -71,7 +73,9 @@ class SystemPipService {
       return false;
     }
     try {
-      final bool? supported = await _channel.invokeMethod<bool>('isPipSupported');
+      final bool? supported = await _channel.invokeMethod<bool>(
+        'isPipSupported',
+      );
       return supported ?? false;
     } catch (_) {
       return false;
@@ -181,9 +185,7 @@ class SystemPipService {
       return;
     }
     try {
-      await _channel.invokeMethod('setKeepScreenOn', {
-        'keepOn': keepOn,
-      });
+      await _channel.invokeMethod('setKeepScreenOn', {'keepOn': keepOn});
     } catch (e) {
       debugPrint('[SystemPipService] setKeepScreenOn error: $e');
     }

@@ -88,8 +88,9 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
         playlist.url.startsWith('https://')) {
       try {
         final uri = Uri.parse(playlist.url);
-        final pathSeg =
-            uri.pathSegments.isNotEmpty ? uri.pathSegments.last : '';
+        final pathSeg = uri.pathSegments.isNotEmpty
+            ? uri.pathSegments.last
+            : '';
         return pathSeg.isNotEmpty ? '${uri.host}/$pathSeg' : uri.host;
       } catch (_) {
         return playlist.url;
@@ -161,7 +162,10 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
       TvToast.info(context, 'Syncing EPG for "${playlist.name}"...');
       final count = await tvState.syncEpgForPlaylist(pid, playlist.epgUrl!);
       if (mounted) {
-        TvToast.success(context, 'EPG Synced! Loaded $count program schedules.');
+        TvToast.success(
+          context,
+          'EPG Synced! Loaded $count program schedules.',
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -220,10 +224,7 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                     const SizedBox(height: 2),
                     const Text(
                       'Assign XMLTV (.xml / .xml.gz) source',
-                      style: TextStyle(
-                        color: TvTheme.textMuted,
-                        fontSize: 11,
-                      ),
+                      style: TextStyle(color: TvTheme.textMuted, fontSize: 11),
                     ),
                   ],
                 ),
@@ -334,8 +335,7 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                     style: const TextStyle(fontSize: 12),
                   ),
                 ),
-                if (playlist.epgUrl != null &&
-                    playlist.epgUrl!.isNotEmpty) ...[
+                if (playlist.epgUrl != null && playlist.epgUrl!.isNotEmpty) ...[
                   const SizedBox(height: 14),
                   Container(
                     padding: const EdgeInsets.all(10),
@@ -388,10 +388,7 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                     ? null
                     : () async {
                         final tvState = dlgCtx.read<TvStateProvider>();
-                        await tvState.updatePlaylistEpgUrl(
-                          playlist.id!,
-                          null,
-                        );
+                        await tvState.updatePlaylistEpgUrl(playlist.id!, null);
                         if (dlgCtx.mounted) {
                           TvToast.info(
                             dlgCtx,
@@ -717,7 +714,9 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                       borderRadius: BorderRadius.circular(12),
                       boxShadow: [
                         BoxShadow(
-                          color: const Color(0xFF3B82F6).withValues(alpha: 0.35),
+                          color: const Color(
+                            0xFF3B82F6,
+                          ).withValues(alpha: 0.35),
                           blurRadius: 10,
                           offset: const Offset(0, 3),
                         ),
@@ -1035,7 +1034,8 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
       itemBuilder: (context, index) {
         final playlist = tvState.playlists[index];
         final isActive = tvState.selectedPlaylist?.id == playlist.id;
-        final isSyncingThis = playlist.id != null &&
+        final isSyncingThis =
+            playlist.id != null &&
             (_syncingPlaylistIds.contains(playlist.id) ||
                 (isActive && tvState.isEpgSyncing));
 
@@ -1062,9 +1062,7 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
         return Container(
           margin: const EdgeInsets.only(bottom: 12),
           decoration: BoxDecoration(
-            color: isActive
-                ? const Color(0xFF132A24)
-                : const Color(0xFF151825),
+            color: isActive ? const Color(0xFF132A24) : const Color(0xFF151825),
             borderRadius: BorderRadius.circular(14),
             border: Border.all(
               color: isActive
@@ -1137,10 +1135,10 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                                         vertical: 2,
                                       ),
                                       decoration: BoxDecoration(
-                                        color: const Color(0xFF10B981)
-                                            .withValues(alpha: 0.18),
-                                        borderRadius:
-                                            BorderRadius.circular(6),
+                                        color: const Color(
+                                          0xFF10B981,
+                                        ).withValues(alpha: 0.18),
+                                        borderRadius: BorderRadius.circular(6),
                                         border: Border.all(
                                           color: const Color(0xFF10B981),
                                           width: 0.8,
@@ -1381,23 +1379,29 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                               vertical: 3,
                             ),
                             decoration: BoxDecoration(
-                              color: (playlist.epgUrl != null &&
+                              color:
+                                  (playlist.epgUrl != null &&
                                       playlist.epgUrl!.isNotEmpty)
                                   ? (playlist.isEpgStale
-                                      ? const Color(0xFFF59E0B)
-                                          .withValues(alpha: 0.15)
-                                      : const Color(0xFF10B981)
-                                          .withValues(alpha: 0.15))
+                                        ? const Color(
+                                            0xFFF59E0B,
+                                          ).withValues(alpha: 0.15)
+                                        : const Color(
+                                            0xFF10B981,
+                                          ).withValues(alpha: 0.15))
                                   : Colors.white.withValues(alpha: 0.04),
                               borderRadius: BorderRadius.circular(6),
                               border: Border.all(
-                                color: (playlist.epgUrl != null &&
+                                color:
+                                    (playlist.epgUrl != null &&
                                         playlist.epgUrl!.isNotEmpty)
                                     ? (playlist.isEpgStale
-                                        ? const Color(0xFFF59E0B)
-                                            .withValues(alpha: 0.4)
-                                        : const Color(0xFF10B981)
-                                            .withValues(alpha: 0.4))
+                                          ? const Color(
+                                              0xFFF59E0B,
+                                            ).withValues(alpha: 0.4)
+                                          : const Color(
+                                              0xFF10B981,
+                                            ).withValues(alpha: 0.4))
                                     : const Color(0xFF2E3448),
                                 width: 0.8,
                               ),
@@ -1409,15 +1413,16 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                                   (playlist.epgUrl != null &&
                                           playlist.epgUrl!.isNotEmpty)
                                       ? (playlist.isEpgStale
-                                          ? Icons.schedule_rounded
-                                          : Icons.check_circle_rounded)
+                                            ? Icons.schedule_rounded
+                                            : Icons.check_circle_rounded)
                                       : Icons.add_circle_outline_rounded,
                                   size: 11,
-                                  color: (playlist.epgUrl != null &&
+                                  color:
+                                      (playlist.epgUrl != null &&
                                           playlist.epgUrl!.isNotEmpty)
                                       ? (playlist.isEpgStale
-                                          ? const Color(0xFFF59E0B)
-                                          : const Color(0xFF10B981))
+                                            ? const Color(0xFFF59E0B)
+                                            : const Color(0xFF10B981))
                                       : TvTheme.textMuted,
                                 ),
                                 const SizedBox(width: 4),
@@ -1425,18 +1430,19 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                                   (playlist.epgUrl != null &&
                                           playlist.epgUrl!.isNotEmpty)
                                       ? (playlist.isEpgStale
-                                          ? 'EPG Expired (Sync)'
-                                          : (playlist.lastEpgSync != null
-                                              ? 'EPG Synced • ${_formatSyncTime(playlist.lastEpgSync!)}'
-                                              : 'EPG Active'))
+                                            ? 'EPG Expired (Sync)'
+                                            : (playlist.lastEpgSync != null
+                                                  ? 'EPG Synced • ${_formatSyncTime(playlist.lastEpgSync!)}'
+                                                  : 'EPG Active'))
                                       : '+ Add EPG Guide',
                                   style: TextStyle(
                                     fontSize: 10.5,
-                                    color: (playlist.epgUrl != null &&
+                                    color:
+                                        (playlist.epgUrl != null &&
                                             playlist.epgUrl!.isNotEmpty)
                                         ? (playlist.isEpgStale
-                                            ? const Color(0xFFF59E0B)
-                                            : const Color(0xFF10B981))
+                                              ? const Color(0xFFF59E0B)
+                                              : const Color(0xFF10B981))
                                         : TvTheme.textMuted,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -1458,9 +1464,7 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                           style: OutlinedButton.styleFrom(
                             foregroundColor: TvTheme.primaryAccent,
                             backgroundColor: const Color(0xFF161926),
-                            side: const BorderSide(
-                              color: Color(0xFF2C344A),
-                            ),
+                            side: const BorderSide(color: Color(0xFF2C344A)),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -1661,7 +1665,9 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                   : () async {
                       final name = _m3uNameController.text.trim();
                       final url = _m3uUrlController.text.trim();
-                      final epgUrl = EpgParser.sanitizeUrl(_m3uEpgUrlController.text);
+                      final epgUrl = EpgParser.sanitizeUrl(
+                        _m3uEpgUrlController.text,
+                      );
                       if (url.isEmpty) {
                         TvToast.warning(
                           context,
@@ -1950,7 +1956,9 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                                     '',
                                   )
                                 : 'Local Playlist');
-                      final epgUrlOrPath = EpgParser.sanitizeUrl(_localEpgUrlController.text);
+                      final epgUrlOrPath = EpgParser.sanitizeUrl(
+                        _localEpgUrlController.text,
+                      );
 
                       if (_selectedFilePath != null) {
                         await tvState.addLocalFilePlaylist(
@@ -2087,14 +2095,18 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                     const SizedBox(height: 6),
                     TextField(
                       controller: _xtreamUserController,
-                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                      ),
                       decoration: InputDecoration(
                         filled: true,
                         fillColor: const Color(0xFF0F111A),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide:
-                              const BorderSide(color: Color(0xFF262C3D)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF262C3D),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
@@ -2125,14 +2137,18 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                     TextField(
                       controller: _xtreamPassController,
                       obscureText: true,
-                      style: const TextStyle(color: Colors.white, fontSize: 13.5),
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 13.5,
+                      ),
                       decoration: InputDecoration(
                         filled: true,
                         fillColor: const Color(0xFF0F111A),
                         border: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
-                          borderSide:
-                              const BorderSide(color: Color(0xFF262C3D)),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF262C3D),
+                          ),
                         ),
                         focusedBorder: OutlineInputBorder(
                           borderRadius: BorderRadius.circular(10),
@@ -2176,8 +2192,9 @@ class _PlaylistManagerDialogState extends State<PlaylistManagerDialog>
                         return;
                       }
 
-                      final customName =
-                          name.isNotEmpty ? name : 'Xtream Service';
+                      final customName = name.isNotEmpty
+                          ? name
+                          : 'Xtream Service';
                       await tvState.addXtreamPlaylist(
                         customName,
                         server,

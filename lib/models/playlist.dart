@@ -57,7 +57,9 @@ class Playlist {
       username: map['username'] as String?,
       password: map['password'] as String?,
       epgUrl: map['epg_url'] as String?,
-      lastUpdated: DateTime.fromMillisecondsSinceEpoch(map['last_updated'] as int),
+      lastUpdated: DateTime.fromMillisecondsSinceEpoch(
+        map['last_updated'] as int,
+      ),
       lastEpgSync: map['last_epg_sync'] != null
           ? DateTime.fromMillisecondsSinceEpoch(map['last_epg_sync'] as int)
           : null,

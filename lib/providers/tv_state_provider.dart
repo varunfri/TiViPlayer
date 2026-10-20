@@ -21,7 +21,14 @@ import '../services/app_platform.dart';
 
 enum TvViewMode { quickOverlay, epgGrid, bottomScrollList }
 
-enum VideoScaleMode { cover, contain, fitWidth, fitHeight, fourThree, sixteenNine }
+enum VideoScaleMode {
+  cover,
+  contain,
+  fitWidth,
+  fitHeight,
+  fourThree,
+  sixteenNine,
+}
 
 class TvStateProvider extends ChangeNotifier {
   final DatabaseService _db = DatabaseService.instance;
@@ -63,6 +70,11 @@ class TvStateProvider extends ChangeNotifier {
   double _playbackRate = 1.0;
   Map<String, String> _persistedSettings = {};
 
+  Duration _playbackPosition = Duration.zero;
+  Duration _playbackDuration = Duration.zero;
+  Duration _playbackBuffer = Duration.zero;
+  Future<void> Function(Duration target)? _seekCallback;
+
   // Getters
   List<Playlist> get playlists => _playlists;
   Playlist? get selectedPlaylist => _selectedPlaylist;
@@ -76,10 +88,99 @@ class TvStateProvider extends ChangeNotifier {
   List<EpgProgram> get upcomingPrograms => _upcomingPrograms;
   Map<String, EpgProgram> get liveProgramsMap => _liveProgramsMap;
 
+  Duration get playbackPosition => _playbackPosition;
+  Duration get playbackDuration => _playbackDuration;
+  Duration get playbackBuffer => _playbackBuffer;
+
+  double get playbackProgressFraction {
+    if (_playbackDuration <= Duration.zero) return 0.0;
+    return (_playbackPosition.inMilliseconds / _playbackDuration.inMilliseconds)
+        .clamp(0.0, 1.0);
+  }
+
+  double get playbackBufferFraction {
+    if (_playbackDuration <= Duration.zero) return 0.0;
+    return (_playbackBuffer.inMilliseconds / _playbackDuration.inMilliseconds)
+        .clamp(0.0, 1.0);
+  }
+
+  static String formatDuration(Duration d, {Duration? referenceDuration}) {
+    if (d.isNegative) return '00:00';
+    final hours = d.inHours;
+    final minutes = d.inMinutes.remainder(60);
+    final seconds = d.inSeconds.remainder(60);
+    final showHours =
+        hours > 0 ||
+        (referenceDuration != null && referenceDuration.inHours > 0);
+    if (showHours) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    } else {
+      return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
+  }
+
+  String get formattedPlaybackPosition =>
+      formatDuration(_playbackPosition, referenceDuration: _playbackDuration);
+  String get formattedPlaybackDuration => formatDuration(_playbackDuration);
+  String get formattedPlaybackRemaining {
+    final remaining = _playbackDuration - _playbackPosition;
+    if (remaining.isNegative) {
+      return _playbackDuration.inHours > 0 ? '-00:00:00' : '-00:00';
+    }
+    return '-${formatDuration(remaining, referenceDuration: _playbackDuration)}';
+  }
+
+  bool? _manifestIsVod;
+  bool? get manifestIsVod => _manifestIsVod;
+
+  bool get isVodStream {
+    if (_manifestIsVod != null) return _manifestIsVod!;
+    if (_playbackDuration > const Duration(seconds: 1)) return true;
+
+    final ch = _activePlayingChannel ?? _selectedChannel;
+    if (ch != null) {
+      if (ch.isVod) return true;
+      final grp = (ch.groupName ?? '').toLowerCase();
+      final name = ch.name.toLowerCase();
+      final url = ch.streamUrl.toLowerCase();
+      if (grp.contains('vod') ||
+          grp.contains('movie') ||
+          grp.contains('series') ||
+          grp.contains('cinema') ||
+          grp.contains('films')) {
+        return true;
+      }
+      if (name.contains('vod') ||
+          url.contains('/movie/') ||
+          url.contains('/series/') ||
+          url.contains('/vod/') ||
+          url.endsWith('.mp4') ||
+          url.endsWith('.mkv') ||
+          url.endsWith('.avi') ||
+          url.endsWith('.mov') ||
+          url.endsWith('.m4v')) {
+        return true;
+      }
+    }
+
+    final pl = _selectedPlaylist;
+    if (pl != null) {
+      final plName = pl.name.toLowerCase();
+      final plUrl = pl.url.toLowerCase();
+      if (plName.contains('vod') || plUrl.contains('vod')) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
   EpgProgram? getLiveProgramForChannel(Channel channel) {
     if (_liveProgramsMap.isEmpty) return null;
     final tvgId = channel.tvgId?.trim().toLowerCase();
-    if (tvgId != null && tvgId.isNotEmpty && _liveProgramsMap.containsKey(tvgId)) {
+    if (tvgId != null &&
+        tvgId.isNotEmpty &&
+        _liveProgramsMap.containsKey(tvgId)) {
       return _liveProgramsMap[tvgId];
     }
     final name = channel.name.trim().toLowerCase();
@@ -88,6 +189,7 @@ class TvStateProvider extends ChangeNotifier {
     }
     return null;
   }
+
   bool get isEpgSyncing => _isEpgSyncing;
   bool get isEpgOverlayVisible => _isEpgOverlayVisible;
   bool get showBottomChannelList => _showBottomChannelList;
@@ -148,14 +250,23 @@ class TvStateProvider extends ChangeNotifier {
             context: context,
             builder: (ctx) => AlertDialog(
               backgroundColor: TvTheme.surfaceElevated,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
               title: const Row(
                 children: [
-                  Icon(Icons.picture_in_picture_rounded, color: TvTheme.primaryAccent),
+                  Icon(
+                    Icons.picture_in_picture_rounded,
+                    color: TvTheme.primaryAccent,
+                  ),
                   SizedBox(width: 10),
                   Text(
                     'Enable Picture-in-Picture',
-                    style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
                   ),
                 ],
               ),
@@ -166,13 +277,18 @@ class TvStateProvider extends ChangeNotifier {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx, false),
-                  child: const Text('Cancel', style: TextStyle(color: Colors.white60)),
+                  child: const Text(
+                    'Cancel',
+                    style: TextStyle(color: Colors.white60),
+                  ),
                 ),
                 FilledButton.icon(
                   onPressed: () => Navigator.pop(ctx, true),
                   icon: const Icon(Icons.settings_rounded, size: 18),
                   label: const Text('Open Settings'),
-                  style: FilledButton.styleFrom(backgroundColor: TvTheme.primary),
+                  style: FilledButton.styleFrom(
+                    backgroundColor: TvTheme.primary,
+                  ),
                 ),
               ],
             ),
@@ -274,6 +390,88 @@ class TvStateProvider extends ChangeNotifier {
     _playbackRateCallback = cb;
   }
 
+  void registerSeekCallback(Future<void> Function(Duration target)? cb) {
+    _seekCallback = cb;
+  }
+
+  void updatePlaybackProgress({
+    required Duration position,
+    required Duration duration,
+    Duration? buffer,
+  }) {
+    bool notify = false;
+    if (_playbackDuration != duration) {
+      _playbackDuration = duration;
+      notify = true;
+    }
+    if ((_playbackPosition - position).abs() >=
+            const Duration(milliseconds: 300) ||
+        position == Duration.zero) {
+      _playbackPosition = position;
+      notify = true;
+    }
+    if (buffer != null && _playbackBuffer != buffer) {
+      _playbackBuffer = buffer;
+      notify = true;
+    }
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  void setManifestStreamType({required bool isVod, Duration? probedDuration}) {
+    bool notify = false;
+    if (_manifestIsVod != isVod) {
+      _manifestIsVod = isVod;
+      notify = true;
+    }
+    if (isVod) {
+      if (probedDuration != null && probedDuration > Duration.zero) {
+        if (_playbackDuration == Duration.zero) {
+          _playbackDuration = probedDuration;
+          notify = true;
+        }
+      }
+    } else {
+      if (_playbackDuration > Duration.zero) {
+        _playbackDuration = Duration.zero;
+        notify = true;
+      }
+    }
+    if (notify) {
+      notifyListeners();
+    }
+  }
+
+  void resetPlaybackProgress() {
+    _playbackPosition = Duration.zero;
+    _playbackDuration = Duration.zero;
+    _playbackBuffer = Duration.zero;
+    _manifestIsVod = null;
+    notifyListeners();
+  }
+
+  Future<void> seekTo(Duration targetPosition) async {
+    var target = targetPosition;
+    if (target < Duration.zero) target = Duration.zero;
+    if (_playbackDuration > Duration.zero && target > _playbackDuration) {
+      target = _playbackDuration;
+    }
+    _playbackPosition = target;
+    notifyListeners();
+
+    if (_seekCallback != null) {
+      await _seekCallback!(target);
+    } else if (_activePlayer != null) {
+      await _activePlayer!.seek(target);
+    }
+  }
+
+  Future<void> seekRelative(Duration delta) async {
+    final target = _playbackPosition + delta;
+    await seekTo(target);
+  }
+
   void _saveCurrentPlaybackState() {
     final updates = <String, String>{};
     if (_activePlayingChannel != null) {
@@ -361,13 +559,23 @@ class TvStateProvider extends ChangeNotifier {
   }
 
   TvStateProvider() {
-    StreamRecordingService.instance.activeRecordingsCount.addListener(notifyListeners);
-    StreamRecordingService.instance.activeBytesProgress.addListener(notifyListeners);
+    StreamRecordingService.instance.activeRecordingsCount.addListener(
+      notifyListeners,
+    );
+    StreamRecordingService.instance.activeBytesProgress.addListener(
+      notifyListeners,
+    );
     if (AppPlatform.isDesktop) {
       DesktopPipService.isPipNotifier.addListener(_onDesktopPipChanged);
     }
-    _epgRefreshTimer = Timer.periodic(const Duration(minutes: 1), (_) => _loadLivePrograms());
-    _epgAutoSyncTimer = Timer.periodic(const Duration(hours: 6), (_) => autoSyncEpgIfNeeded().ignore());
+    _epgRefreshTimer = Timer.periodic(
+      const Duration(minutes: 1),
+      (_) => _loadLivePrograms(),
+    );
+    _epgAutoSyncTimer = Timer.periodic(
+      const Duration(hours: 6),
+      (_) => autoSyncEpgIfNeeded().ignore(),
+    );
   }
 
   @override
@@ -375,8 +583,13 @@ class TvStateProvider extends ChangeNotifier {
     ScreenWakeService.releaseWakeLock();
     _epgRefreshTimer?.cancel();
     _epgAutoSyncTimer?.cancel();
-    StreamRecordingService.instance.activeRecordingsCount.removeListener(notifyListeners);
-    StreamRecordingService.instance.activeBytesProgress.removeListener(notifyListeners);
+    RecordingScheduler.instance.dispose();
+    StreamRecordingService.instance.activeRecordingsCount.removeListener(
+      notifyListeners,
+    );
+    StreamRecordingService.instance.activeBytesProgress.removeListener(
+      notifyListeners,
+    );
     if (AppPlatform.isDesktop) {
       DesktopPipService.isPipNotifier.removeListener(_onDesktopPipChanged);
     }
@@ -456,14 +669,18 @@ class TvStateProvider extends ChangeNotifier {
         if (savedPidStr != null) {
           final savedPid = int.tryParse(savedPidStr);
           if (savedPid != null) {
-            targetPlaylist = _playlists.where((p) => p.id == savedPid).firstOrNull;
+            targetPlaylist = _playlists
+                .where((p) => p.id == savedPid)
+                .firstOrNull;
           }
         }
-        if (targetPlaylist == null && _persistedSettings.containsKey('last_playlist_url')) {
+        if (targetPlaylist == null &&
+            _persistedSettings.containsKey('last_playlist_url')) {
           final url = _persistedSettings['last_playlist_url'];
           targetPlaylist = _playlists.where((p) => p.url == url).firstOrNull;
         }
-        if (targetPlaylist == null && _persistedSettings.containsKey('last_playlist_name')) {
+        if (targetPlaylist == null &&
+            _persistedSettings.containsKey('last_playlist_name')) {
           final name = _persistedSettings['last_playlist_name'];
           targetPlaylist = _playlists.where((p) => p.name == name).firstOrNull;
         }
@@ -472,11 +689,15 @@ class TvStateProvider extends ChangeNotifier {
         await _loadGroupsAndChannels(isInitialResume: true);
 
         // Self-heal: If existing demo playlist has deprecated dead streams (Bloomberg/France24), refresh with active streams
-        final hasDeadDemoUrls = _channels.any((c) =>
-            c.streamUrl.contains('liveprodupmx.akamaized.net') ||
-            c.streamUrl.contains('static.france24.com') ||
-            c.streamUrl.contains('live-hls-web-aje.getaj.net'));
-        if (hasDeadDemoUrls && _selectedPlaylist?.url == 'https://demo-iptv.internal/playlist.m3u') {
+        final hasDeadDemoUrls = _channels.any(
+          (c) =>
+              c.streamUrl.contains('liveprodupmx.akamaized.net') ||
+              c.streamUrl.contains('static.france24.com') ||
+              c.streamUrl.contains('live-hls-web-aje.getaj.net'),
+        );
+        if (hasDeadDemoUrls &&
+            _selectedPlaylist?.url ==
+                'https://demo-iptv.internal/playlist.m3u') {
           if (_selectedPlaylist?.id != null) {
             await _db.deletePlaylist(_selectedPlaylist!.id!);
           }
@@ -534,14 +755,19 @@ class TvStateProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> addM3uPlaylist(String name, String url, {String? customEpgUrl}) async {
+  Future<void> addM3uPlaylist(
+    String name,
+    String url, {
+    String? customEpgUrl,
+  }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
       final bundle = await PlaylistParser.parseM3uBundleFromUrl(url);
-      final effectiveEpgUrl = (customEpgUrl != null && customEpgUrl.trim().isNotEmpty)
+      final effectiveEpgUrl =
+          (customEpgUrl != null && customEpgUrl.trim().isNotEmpty)
           ? customEpgUrl.trim()
           : bundle.epgUrl;
 
@@ -573,14 +799,19 @@ class TvStateProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> addLocalFilePlaylist(String name, String filePath, {String? customEpgUrlOrPath}) async {
+  Future<void> addLocalFilePlaylist(
+    String name,
+    String filePath, {
+    String? customEpgUrlOrPath,
+  }) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
 
     try {
       final bundle = await PlaylistParser.parseM3uBundleFromFile(filePath);
-      final effectiveEpg = (customEpgUrlOrPath != null && customEpgUrlOrPath.trim().isNotEmpty)
+      final effectiveEpg =
+          (customEpgUrlOrPath != null && customEpgUrlOrPath.trim().isNotEmpty)
           ? customEpgUrlOrPath.trim()
           : bundle.epgUrl;
 
@@ -619,7 +850,10 @@ class TvStateProvider extends ChangeNotifier {
       if (programs.isNotEmpty) {
         await _db.saveEpgPrograms(programs);
         await _db.updatePlaylistEpgUrl(playlistId, result.effectiveUrlOrPath);
-        await _db.updatePlaylistEpgSyncTime(playlistId, DateTime.now().millisecondsSinceEpoch);
+        await _db.updatePlaylistEpgSyncTime(
+          playlistId,
+          DateTime.now().millisecondsSinceEpoch,
+        );
 
         _playlists = await _db.getPlaylists();
         await _loadLivePrograms();
@@ -656,7 +890,9 @@ class TvStateProvider extends ChangeNotifier {
 
       try {
         final count = await syncEpgForPlaylist(pid, epgUrl);
-        debugPrint('[TvStateProvider] Auto-synced $count EPG programs for "${playlist.name}"');
+        debugPrint(
+          '[TvStateProvider] Auto-synced $count EPG programs for "${playlist.name}"',
+        );
         return count;
       } catch (e) {
         debugPrint('[TvStateProvider] Auto-sync EPG non-critical error: $e');
@@ -712,7 +948,12 @@ class TvStateProvider extends ChangeNotifier {
     }
   }
 
-  Future<void> addXtreamPlaylist(String name, String serverUrl, String username, String password) async {
+  Future<void> addXtreamPlaylist(
+    String name,
+    String serverUrl,
+    String username,
+    String password,
+  ) async {
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
@@ -726,7 +967,9 @@ class TvStateProvider extends ChangeNotifier {
 
       final isValid = await xtream.authenticate();
       if (!isValid) {
-        throw Exception('Xtream Authentication failed. Please verify credentials.');
+        throw Exception(
+          'Xtream Authentication failed. Please verify credentials.',
+        );
       }
 
       final parsed = await xtream.fetchLiveStreams();
@@ -819,7 +1062,9 @@ class TvStateProvider extends ChangeNotifier {
 
     try {
       await _db.deletePlaylist(playlistId);
-      _persistedSettings.removeWhere((k, _) => k.startsWith('playlist_${playlistId}_'));
+      _persistedSettings.removeWhere(
+        (k, _) => k.startsWith('playlist_${playlistId}_'),
+      );
       if (_persistedSettings['last_playlist_id'] == playlistId.toString()) {
         _persistedSettings.remove('last_playlist_id');
         _persistedSettings.remove('last_playlist_name');
@@ -866,13 +1111,15 @@ class TvStateProvider extends ChangeNotifier {
     final favKey = 'playlist_${pid}_is_favorites_only';
     if (_persistedSettings.containsKey(favKey)) {
       _isFavoritesOnly = _persistedSettings[favKey] == '1';
-    } else if (isInitialResume && _persistedSettings.containsKey('is_favorites_only')) {
+    } else if (isInitialResume &&
+        _persistedSettings.containsKey('is_favorites_only')) {
       _isFavoritesOnly = _persistedSettings['is_favorites_only'] == '1';
     }
 
     if (!_isFavoritesOnly && _groups.isNotEmpty) {
       ChannelGroup? targetGroup;
-      final savedGidStr = _persistedSettings['playlist_${pid}_last_group_id'] ??
+      final savedGidStr =
+          _persistedSettings['playlist_${pid}_last_group_id'] ??
           (isInitialResume ? _persistedSettings['last_group_id'] : null);
       if (savedGidStr != null) {
         final savedGid = int.tryParse(savedGidStr);
@@ -881,21 +1128,31 @@ class TvStateProvider extends ChangeNotifier {
         }
       }
       if (targetGroup == null) {
-        final savedGroupName = _persistedSettings['playlist_${pid}_last_group_name'] ??
+        final savedGroupName =
+            _persistedSettings['playlist_${pid}_last_group_name'] ??
             (isInitialResume ? _persistedSettings['last_group_name'] : null);
         if (savedGroupName != null) {
-          targetGroup = _groups.where((g) => g.name.toLowerCase() == savedGroupName.toLowerCase()).firstOrNull;
+          targetGroup = _groups
+              .where(
+                (g) => g.name.toLowerCase() == savedGroupName.toLowerCase(),
+              )
+              .firstOrNull;
         }
       }
       _selectedGroup = targetGroup ?? _groups.first;
-    } else if (!_isFavoritesOnly && _groups.isNotEmpty && _selectedGroup == null) {
+    } else if (!_isFavoritesOnly &&
+        _groups.isNotEmpty &&
+        _selectedGroup == null) {
       _selectedGroup = _groups.first;
     }
 
     await _refreshChannels(isInitialResume: isInitialResume);
   }
 
-  Future<void> _refreshChannels({bool isInitialResume = false, int? preferredChannelId}) async {
+  Future<void> _refreshChannels({
+    bool isInitialResume = false,
+    int? preferredChannelId,
+  }) async {
     if (_selectedPlaylist?.id == null) return;
     final pid = _selectedPlaylist!.id!;
 
@@ -913,18 +1170,24 @@ class TvStateProvider extends ChangeNotifier {
 
       if (_searchQuery.trim().isNotEmpty) {
         if (_activePlayingChannel != null) {
-          targetChannel = _channels.where((c) => c.id == _activePlayingChannel!.id).firstOrNull;
+          targetChannel = _channels
+              .where((c) => c.id == _activePlayingChannel!.id)
+              .firstOrNull;
         }
         targetChannel ??= _channels.first;
         _selectedChannel = targetChannel;
         await _loadEpgForSelectedChannel();
       } else {
         if (preferredChannelId != null) {
-          targetChannel = _channels.where((c) => c.id == preferredChannelId).firstOrNull;
+          targetChannel = _channels
+              .where((c) => c.id == preferredChannelId)
+              .firstOrNull;
         }
 
         // 1. Try per-group last channel if a specific group is selected
-        if (targetChannel == null && !_isFavoritesOnly && _selectedGroup?.id != null) {
+        if (targetChannel == null &&
+            !_isFavoritesOnly &&
+            _selectedGroup?.id != null) {
           final gid = _selectedGroup!.id!;
           final gidStr = _persistedSettings['group_${gid}_last_channel_id'];
           if (gidStr != null) {
@@ -934,22 +1197,28 @@ class TvStateProvider extends ChangeNotifier {
             }
           }
           if (targetChannel == null) {
-            final sUrl = _persistedSettings['group_${gid}_last_channel_stream_url'];
+            final sUrl =
+                _persistedSettings['group_${gid}_last_channel_stream_url'];
             if (sUrl != null) {
-              targetChannel = _channels.where((c) => c.streamUrl == sUrl).firstOrNull;
+              targetChannel = _channels
+                  .where((c) => c.streamUrl == sUrl)
+                  .firstOrNull;
             }
           }
           if (targetChannel == null) {
             final sName = _persistedSettings['group_${gid}_last_channel_name'];
             if (sName != null) {
-              targetChannel = _channels.where((c) => c.name.toLowerCase() == sName.toLowerCase()).firstOrNull;
+              targetChannel = _channels
+                  .where((c) => c.name.toLowerCase() == sName.toLowerCase())
+                  .firstOrNull;
             }
           }
         }
 
         // 2. Try favorites last channel if favorites mode is active
         if (targetChannel == null && _isFavoritesOnly) {
-          final favChIdStr = _persistedSettings['playlist_${pid}_fav_last_channel_id'];
+          final favChIdStr =
+              _persistedSettings['playlist_${pid}_fav_last_channel_id'];
           if (favChIdStr != null) {
             final chId = int.tryParse(favChIdStr);
             if (chId != null) {
@@ -960,7 +1229,8 @@ class TvStateProvider extends ChangeNotifier {
 
         // 3. Try playlist last channel
         if (targetChannel == null) {
-          final playChIdStr = _persistedSettings['playlist_${pid}_last_channel_id'] ??
+          final playChIdStr =
+              _persistedSettings['playlist_${pid}_last_channel_id'] ??
               (isInitialResume ? _persistedSettings['last_channel_id'] : null);
           if (playChIdStr != null) {
             final chId = int.tryParse(playChIdStr);
@@ -969,24 +1239,36 @@ class TvStateProvider extends ChangeNotifier {
             }
           }
           if (targetChannel == null) {
-            final sUrl = _persistedSettings['playlist_${pid}_last_channel_stream_url'] ??
-                (isInitialResume ? _persistedSettings['last_channel_stream_url'] : null);
+            final sUrl =
+                _persistedSettings['playlist_${pid}_last_channel_stream_url'] ??
+                (isInitialResume
+                    ? _persistedSettings['last_channel_stream_url']
+                    : null);
             if (sUrl != null) {
-              targetChannel = _channels.where((c) => c.streamUrl == sUrl).firstOrNull;
+              targetChannel = _channels
+                  .where((c) => c.streamUrl == sUrl)
+                  .firstOrNull;
             }
           }
           if (targetChannel == null) {
-            final sName = _persistedSettings['playlist_${pid}_last_channel_name'] ??
-                (isInitialResume ? _persistedSettings['last_channel_name'] : null);
+            final sName =
+                _persistedSettings['playlist_${pid}_last_channel_name'] ??
+                (isInitialResume
+                    ? _persistedSettings['last_channel_name']
+                    : null);
             if (sName != null) {
-              targetChannel = _channels.where((c) => c.name.toLowerCase() == sName.toLowerCase()).firstOrNull;
+              targetChannel = _channels
+                  .where((c) => c.name.toLowerCase() == sName.toLowerCase())
+                  .firstOrNull;
             }
           }
         }
 
         // 4. Try current active playing channel if still present in this filtered list
         if (targetChannel == null && _activePlayingChannel != null) {
-          targetChannel = _channels.where((c) => c.id == _activePlayingChannel!.id).firstOrNull;
+          targetChannel = _channels
+              .where((c) => c.id == _activePlayingChannel!.id)
+              .firstOrNull;
         }
 
         // 5. Fallback to first channel in list
@@ -1024,7 +1306,8 @@ class TvStateProvider extends ChangeNotifier {
       return;
     }
 
-    final candidateId = (channel.tvgId != null && channel.tvgId!.trim().isNotEmpty)
+    final candidateId =
+        (channel.tvgId != null && channel.tvgId!.trim().isNotEmpty)
         ? channel.tvgId!.trim()
         : channel.name.trim();
 
@@ -1039,10 +1322,15 @@ class TvStateProvider extends ChangeNotifier {
       var upcoming = await _db.getUpcomingPrograms(candidateId, limit: 4);
 
       // If candidateId was tvgId and yielded no program, try channel.name as fallback
-      if (current == null && channel.name.trim().isNotEmpty && channel.name.trim() != candidateId) {
+      if (current == null &&
+          channel.name.trim().isNotEmpty &&
+          channel.name.trim() != candidateId) {
         current = await _db.getCurrentProgram(channel.name.trim());
         if (upcoming.isEmpty) {
-          upcoming = await _db.getUpcomingPrograms(channel.name.trim(), limit: 4);
+          upcoming = await _db.getUpcomingPrograms(
+            channel.name.trim(),
+            limit: 4,
+          );
         }
       }
 
@@ -1057,9 +1345,7 @@ class TvStateProvider extends ChangeNotifier {
   void selectGroup(ChannelGroup? group) {
     _isFavoritesOnly = false;
     _selectedGroup = group;
-    final updates = <String, String>{
-      'is_favorites_only': '0',
-    };
+    final updates = <String, String>{'is_favorites_only': '0'};
     if (group?.id != null) {
       final gid = group!.id!;
       updates['last_group_id'] = gid.toString();
@@ -1080,9 +1366,7 @@ class TvStateProvider extends ChangeNotifier {
   void toggleFavoritesFilter() {
     _isFavoritesOnly = !_isFavoritesOnly;
     final val = _isFavoritesOnly ? '1' : '0';
-    final updates = <String, String>{
-      'is_favorites_only': val,
-    };
+    final updates = <String, String>{'is_favorites_only': val};
     if (_selectedPlaylist?.id != null) {
       final pid = _selectedPlaylist!.id!;
       updates['playlist_${pid}_is_favorites_only'] = val;
@@ -1116,6 +1400,9 @@ class TvStateProvider extends ChangeNotifier {
   void playChannel(Channel channel, {bool saveState = true}) {
     _selectedChannel = channel;
     _activePlayingChannel = channel;
+    _playbackPosition = Duration.zero;
+    _playbackDuration = Duration.zero;
+    _playbackBuffer = Duration.zero;
     _isPlaying = true;
     _loadEpgForSelectedChannel();
     _updateNativePipAutoEnter();
@@ -1127,7 +1414,9 @@ class TvStateProvider extends ChangeNotifier {
 
   void playNextChannel() {
     if (_channels.isEmpty || _activePlayingChannel == null) return;
-    final currentIndex = _channels.indexWhere((c) => c.id == _activePlayingChannel!.id);
+    final currentIndex = _channels.indexWhere(
+      (c) => c.id == _activePlayingChannel!.id,
+    );
     if (currentIndex != -1 && currentIndex + 1 < _channels.length) {
       playChannel(_channels[currentIndex + 1]);
     } else if (_channels.isNotEmpty) {
@@ -1137,7 +1426,9 @@ class TvStateProvider extends ChangeNotifier {
 
   void playPreviousChannel() {
     if (_channels.isEmpty || _activePlayingChannel == null) return;
-    final currentIndex = _channels.indexWhere((c) => c.id == _activePlayingChannel!.id);
+    final currentIndex = _channels.indexWhere(
+      (c) => c.id == _activePlayingChannel!.id,
+    );
     if (currentIndex > 0) {
       playChannel(_channels[currentIndex - 1]);
     } else if (_channels.isNotEmpty) {
@@ -1159,7 +1450,9 @@ class TvStateProvider extends ChangeNotifier {
       _selectedChannel = _selectedChannel!.copyWith(isFavorite: newFav);
     }
     if (_activePlayingChannel?.id == channel.id) {
-      _activePlayingChannel = _activePlayingChannel!.copyWith(isFavorite: newFav);
+      _activePlayingChannel = _activePlayingChannel!.copyWith(
+        isFavorite: newFav,
+      );
     }
     notifyListeners();
   }
@@ -1286,16 +1579,22 @@ class TvStateProvider extends ChangeNotifier {
 
   RecordingItem? get currentChannelRecordingItem {
     if (_activePlayingChannel?.id == null) return null;
-    return StreamRecordingService.instance.getActiveJobForChannel(_activePlayingChannel!.id!);
+    return StreamRecordingService.instance.getActiveJobForChannel(
+      _activePlayingChannel!.id!,
+    );
   }
 
   int get currentChannelBytesRecorded {
     final item = currentChannelRecordingItem;
     if (item?.id == null) return 0;
-    return StreamRecordingService.instance.activeBytesProgress.value[item!.id!] ?? item.bytesRecorded;
+    return StreamRecordingService.instance.activeBytesProgress.value[item!
+            .id!] ??
+        item.bytesRecorded;
   }
 
-  Future<void> toggleRecordActiveChannel({Duration duration = const Duration(minutes: 60)}) async {
+  Future<void> toggleRecordActiveChannel({
+    Duration duration = const Duration(minutes: 60),
+  }) async {
     if (_activePlayingChannel == null) return;
     final chId = _activePlayingChannel!.id ?? 0;
     if (isRecordingChannel(chId)) {
@@ -1310,7 +1609,9 @@ class TvStateProvider extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> startInstantRecording({Duration duration = const Duration(minutes: 60)}) async {
+  Future<void> startInstantRecording({
+    Duration duration = const Duration(minutes: 60),
+  }) async {
     if (_activePlayingChannel == null) return;
     await RecordingScheduler.instance.startInstantRecording(
       channel: _activePlayingChannel!,
@@ -1322,7 +1623,9 @@ class TvStateProvider extends ChangeNotifier {
 
   Future<void> stopActiveChannelRecording() async {
     if (_activePlayingChannel?.id == null) return;
-    await RecordingScheduler.instance.stopRecordingForChannel(_activePlayingChannel!.id!);
+    await RecordingScheduler.instance.stopRecordingForChannel(
+      _activePlayingChannel!.id!,
+    );
     notifyListeners();
   }
 

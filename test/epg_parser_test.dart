@@ -40,8 +40,10 @@ void main() {
       expect(p2.startTime.toUtc(), DateTime.utc(2026, 10, 16, 7, 30, 0));
     });
 
-    test('parses fault-tolerant XMLTV with unescaped ampersands and quotes', () {
-      const dirtyXmltv = '''
+    test(
+      'parses fault-tolerant XMLTV with unescaped ampersands and quotes',
+      () {
+        const dirtyXmltv = '''
 <tv>
   <programme start="20261016180000" stop="20261016190000" channel="sports.1">
     <title>Football: Real Madrid & Barcelona Live</title>
@@ -49,11 +51,12 @@ void main() {
   </programme>
 </tv>''';
 
-      final programs = EpgParser.parseXmlTv(dirtyXmltv);
-      expect(programs.length, 1);
-      expect(programs.first.title, 'Football: Real Madrid & Barcelona Live');
-      expect(programs.first.channelTvgId, 'sports.1');
-    });
+        final programs = EpgParser.parseXmlTv(dirtyXmltv);
+        expect(programs.length, 1);
+        expect(programs.first.title, 'Football: Real Madrid & Barcelona Live');
+        expect(programs.first.channelTvgId, 'sports.1');
+      },
+    );
 
     test('decompresses gzip XMLTV byte stream', () {
       const xmltvSample = '''<?xml version="1.0" encoding="UTF-8"?>
@@ -90,7 +93,8 @@ http://stream.example.com/live/bbc1.m3u8''';
     });
 
     test('extracts x-tvg-url from M3U header', () {
-      const m3uWithXTvgUrl = '''#EXTM3U x-tvg-url="http://xmltv.myprovider.net/guide.xml"
+      const m3uWithXTvgUrl =
+          '''#EXTM3U x-tvg-url="http://xmltv.myprovider.net/guide.xml"
 #EXTINF:-1 tvg-name="CNN" group-title="News",CNN News
 http://stream.example.com/live/cnn.m3u8''';
 
@@ -101,30 +105,38 @@ http://stream.example.com/live/cnn.m3u8''';
       expect(bundle.groups['News']?.first.tvgId, 'CNN');
     });
 
-    test('generates accurate webPlayerUrl and inAppWebPlayerUrl for JioTV Go and other channels', () {
-      final ch = Channel(
-        playlistId: 1,
-        groupId: 1,
-        channelNumber: 760,
-        name: 'Maa Movies HD',
-        streamUrl: 'https://varun.myddns.me:5000/live/mpd/760',
-        tvgId: '760',
-        drmType: 'com.widevine.alpha',
-      );
-      expect(ch.webPlayerUrl, 'https://varun.myddns.me:5000/play/760');
-      expect(ch.inAppWebPlayerUrl, 'https://varun.myddns.me:5000/mpd/760?q=auto&pm=hd');
-      expect(ch.hasDrm, true);
+    test(
+      'generates accurate webPlayerUrl and inAppWebPlayerUrl for JioTV Go and other channels',
+      () {
+        final ch = Channel(
+          playlistId: 1,
+          groupId: 1,
+          channelNumber: 760,
+          name: 'Maa Movies HD',
+          streamUrl: 'https://varun.myddns.me:5000/live/mpd/760',
+          tvgId: '760',
+          drmType: 'com.widevine.alpha',
+        );
+        expect(ch.webPlayerUrl, 'https://varun.myddns.me:5000/play/760');
+        expect(
+          ch.inAppWebPlayerUrl,
+          'https://varun.myddns.me:5000/mpd/760?q=auto&pm=hd',
+        );
+        expect(ch.hasDrm, true);
 
-      final ch2 = Channel(
-        playlistId: 1,
-        groupId: 1,
-        channelNumber: 151,
-        name: 'Movies Now HD',
-        streamUrl: 'https://varun.myddns.me:5000/live/mpd/151',
-      );
-      expect(ch2.webPlayerUrl, 'https://varun.myddns.me:5000/play/151');
-      expect(ch2.inAppWebPlayerUrl, 'https://varun.myddns.me:5000/mpd/151?q=auto&pm=hd');
-    });
+        final ch2 = Channel(
+          playlistId: 1,
+          groupId: 1,
+          channelNumber: 151,
+          name: 'Movies Now HD',
+          streamUrl: 'https://varun.myddns.me:5000/live/mpd/151',
+        );
+        expect(ch2.webPlayerUrl, 'https://varun.myddns.me:5000/play/151');
+        expect(
+          ch2.inAppWebPlayerUrl,
+          'https://varun.myddns.me:5000/mpd/151?q=auto&pm=hd',
+        );
+      },
+    );
   });
 }
-

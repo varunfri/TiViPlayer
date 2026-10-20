@@ -19,12 +19,14 @@ import '../../services/external_player_service.dart';
 import '../../ui/theme.dart';
 import 'tv_toast.dart';
 import 'shaka_player/shaka_player_view.dart';
+import '../../services/hls_manifest_prober.dart';
 
 class VideoPlayerWidget extends StatefulWidget {
   final Channel? channel;
   final bool isMuted;
   final VideoScaleMode scaleMode;
   final bool isPlaying;
+  final ValueChanged<bool>? onErrorChanged;
 
   const VideoPlayerWidget({
     super.key,
@@ -32,6 +34,7 @@ class VideoPlayerWidget extends StatefulWidget {
     this.isMuted = false,
     this.scaleMode = VideoScaleMode.cover,
     this.isPlaying = true,
+    this.onErrorChanged,
   });
 
   @override
@@ -58,6 +61,20 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   bool _isInitializing = false;
   bool _isInitialized = false;
   String? _errorMessage;
+
+  void _setErrorMessage(String? error) {
+    final hadError = _errorMessage != null;
+    _errorMessage = error;
+    final hasError = _errorMessage != null;
+    if (hadError != hasError) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          widget.onErrorChanged?.call(hasError);
+        }
+      });
+    }
+  }
+
   bool _isBuffering = false;
 
   Timer? _bufferingDebounceTimer;
@@ -66,6 +83,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
   StreamSubscription? _errorSubscription;
   StreamSubscription? _playingSubscription;
   StreamSubscription? _positionSubscription;
+  StreamSubscription? _durationSubscription;
+  StreamSubscription? _bufferSubscription;
 
   // Auto-retry & diagnostics state
   Timer? _autoRetryTimer;
@@ -79,8 +98,12 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     super.initState();
     if (AppPlatform.isAndroid) {
       try {
-        context.read<TvStateProvider>().registerPlaybackRateCallback((rate) {
+        final tvState = context.read<TvStateProvider>();
+        tvState.registerPlaybackRateCallback((rate) {
           _androidController?.setPlaybackSpeed(rate);
+        });
+        tvState.registerSeekCallback((target) async {
+          await _androidController?.seekTo(target);
         });
       } catch (_) {}
     } else if (AppPlatform.isDesktop) {
@@ -112,7 +135,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       }
       if (_errorMessage == null) {
         setState(() {
-          _errorMessage = err;
+          _setErrorMessage(err);
           _isInitializing = false;
           _isBuffering = false;
         });
@@ -123,6 +146,18 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         setState(() {
           _isBuffering = val.isBuffering;
         });
+      }
+      if (val.isInitialized) {
+        final tvState = context.read<TvStateProvider>();
+        Duration buf = Duration.zero;
+        if (val.buffered.isNotEmpty) {
+          buf = val.buffered.last.end;
+        }
+        tvState.updatePlaybackProgress(
+          position: val.position,
+          duration: val.duration,
+          buffer: buf,
+        );
       }
     }
   }
@@ -147,9 +182,16 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         _player?.setVolume(tvState.isMuted ? 0.0 : (tvState.volume * 100.0));
         _player?.setRate(tvState.playbackRate);
         tvState.registerPlayer(_player);
+        tvState.registerSeekCallback((target) async {
+          await _player?.seek(target);
+        });
+        (_player!.platform as dynamic)?.setProperty(
+          'user-agent',
+          'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+        );
         (_player!.platform as dynamic)?.setProperty('network-timeout', '20');
         (_player!.platform as dynamic)?.setProperty(
-          'stream-lavf-o',
+          'demuxer-lavf-o',
           'reconnect=1,reconnect_streamed=1,reconnect_delay_max=5',
         );
       } catch (_) {}
@@ -196,6 +238,26 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         }
       });
 
+      _durationSubscription = _player!.stream.duration.listen((dur) {
+        if (!mounted) return;
+        final tvState = context.read<TvStateProvider>();
+        tvState.updatePlaybackProgress(
+          position: _player?.state.position ?? Duration.zero,
+          duration: dur,
+          buffer: _player?.state.buffer,
+        );
+      });
+
+      _bufferSubscription = _player!.stream.buffer.listen((buf) {
+        if (!mounted) return;
+        final tvState = context.read<TvStateProvider>();
+        tvState.updatePlaybackProgress(
+          position: _player?.state.position ?? Duration.zero,
+          duration: _player?.state.duration ?? Duration.zero,
+          buffer: buf,
+        );
+      });
+
       _positionSubscription = _player!.stream.position.listen((pos) {
         if (!mounted) return;
         if (pos > Duration.zero && _isBuffering) {
@@ -205,6 +267,12 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
             _isBuffering = false;
           });
         }
+        final tvState = context.read<TvStateProvider>();
+        tvState.updatePlaybackProgress(
+          position: pos,
+          duration: _player?.state.duration ?? Duration.zero,
+          buffer: _player?.state.buffer,
+        );
       });
 
       _errorSubscription = _player!.stream.error.listen((error) {
@@ -236,7 +304,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
             '[VideoPlayerWidget] Transient network read timeout ($error), initiating auto-reconnect...',
           );
           setState(() {
-            _errorMessage = error;
+            _setErrorMessage(error);
             _isInitializing = false;
             _isBuffering = false;
           });
@@ -254,7 +322,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
           return;
         }
         setState(() {
-          _errorMessage = error;
+          _setErrorMessage(error);
           _isInitializing = false;
           _isBuffering = false;
         });
@@ -350,7 +418,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     setState(() {
       _isInitializing = true;
       _isInitialized = false;
-      _errorMessage = null;
+      _setErrorMessage(null);
     });
 
     final tvState = context.read<TvStateProvider>();
@@ -361,7 +429,8 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       final List<String> candidateUrls = [];
 
       final Map<String, String> requestHeaders = {
-        'User-Agent': 'TiviMate/5.1.0 (Android TV; Linux; OKHttp/5.4.0)',
+        'User-Agent':
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
         'Accept': '*/*',
         'Connection': 'keep-alive',
       };
@@ -441,6 +510,63 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         candidateUrls.add(streamUrl);
       }
 
+      // Android Candidate Fallback Extensions:
+      if (AppPlatform.isAndroid) {
+        // 1. Android Emulator Host loopback mapping:
+        if (streamUrl.contains('localhost') ||
+            streamUrl.contains('127.0.0.1')) {
+          final emulatorUrl = streamUrl
+              .replaceAll('localhost', '10.0.2.2')
+              .replaceAll('127.0.0.1', '10.0.2.2');
+          if (!candidateUrls.contains(emulatorUrl)) {
+            candidateUrls.add(emulatorUrl);
+          }
+        }
+        // 2. HTTPS to HTTP cleartext fallback (for local media servers with optional SSL):
+        if (streamUrl.startsWith('https://')) {
+          final httpFallback = 'http://${streamUrl.substring(8)}';
+          if (!candidateUrls.contains(httpFallback)) {
+            candidateUrls.add(httpFallback);
+          }
+        }
+      }
+
+      // Probe HLS manifest headers to differentiate RFC 8216 VOD vs Live stream
+      final probeCandidate = candidateUrls.firstWhere(
+        (u) => u.toLowerCase().contains('.m3u8'),
+        orElse: () => candidateUrls.first,
+      );
+      final isDirectMediaFile =
+          probeCandidate.toLowerCase().contains('.mp4') ||
+          probeCandidate.toLowerCase().contains('.mkv') ||
+          probeCandidate.toLowerCase().contains('.avi') ||
+          probeCandidate.toLowerCase().contains('.mov') ||
+          probeCandidate.toLowerCase().contains('.ts');
+
+      if (!isDirectMediaFile &&
+          (probeCandidate.toLowerCase().contains('.m3u8') ||
+              probeCandidate.toLowerCase().contains('/hls') ||
+              (widget.channel?.isLive != false &&
+                  !probeCandidate.toLowerCase().contains('/stream/')))) {
+        HlsManifestProber.probeStream(
+              probeCandidate,
+              customHeaders: requestHeaders,
+            )
+            .then((probe) {
+              if (!mounted) return;
+              final tvState = context.read<TvStateProvider>();
+              if (probe.isVod) {
+                tvState.setManifestStreamType(
+                  isVod: true,
+                  probedDuration: probe.totalDuration,
+                );
+              } else if (probe.isLive && probe.mediaSequence != null) {
+                tvState.setManifestStreamType(isVod: false);
+              }
+            })
+            .catchError((_) {});
+      }
+
       // If no working unencrypted HLS stream was found on macOS desktop DRM stream:
       if (AppPlatform.isMacOS &&
           candidateUrls.length == 1 &&
@@ -453,8 +579,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
             _isInitializing = false;
             _isInitialized = false;
             _isUsingWebPlayer = false;
-            _errorMessage =
-                'Channel #${widget.channel?.channelNumber ?? ""} is protected with Google Widevine DRM.\nmacOS WebKit does not include Widevine CDM. Launch the external player in Chrome/Edge or default browser to watch this broadcast.';
+            _setErrorMessage(
+              'Channel #${widget.channel?.channelNumber ?? ""} is protected with Google Widevine DRM.\nmacOS WebKit does not include Widevine CDM. Launch the external player in Chrome/Edge or default browser to watch this broadcast.',
+            );
           });
         }
         return;
@@ -472,7 +599,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
           setState(() {
             _isInitializing = false;
             _isInitialized = true;
-            _errorMessage = null;
+            _setErrorMessage(null);
             _retryCount = 0;
           });
           ScreenWakeService.keepScreenOn(widget.isPlaying);
@@ -495,55 +622,68 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         Object? lastError;
         bool initializedSuccessfully = false;
 
-        for (int i = 0; i < candidateUrls.length; i++) {
-          final currentUrl = candidateUrls[i];
-          final lower = currentUrl.toLowerCase();
-          vp.VideoFormat? formatHint;
+        List<vp.VideoFormat?> getFormatHintsForUrl(String url) {
+          final lower = url.toLowerCase();
           if (lower.contains('.mpd') ||
               lower.contains('/dash') ||
               lower.contains('/mpd/')) {
-            formatHint = vp.VideoFormat.dash;
-          } else if (lower.contains('.m3u8') ||
+            return [vp.VideoFormat.dash];
+          }
+          if (lower.contains('.ism')) {
+            return [vp.VideoFormat.ss];
+          }
+          if (lower.contains('.m3u8') ||
               lower.contains('/hls') ||
               lower.contains('format=m3u8') ||
               lower.contains('type=m3u8')) {
-            formatHint = vp.VideoFormat.hls;
-          } else if (lower.contains('.ism')) {
-            formatHint = vp.VideoFormat.ss;
-          } else if (lower.endsWith('.mp4') ||
-              lower.endsWith('.mkv') ||
-              lower.endsWith('.avi')) {
-            formatHint = vp.VideoFormat.other;
-          } else {
-            formatHint = vp.VideoFormat.hls;
+            return [vp.VideoFormat.hls, vp.VideoFormat.other];
           }
+          if (lower.contains('.mp4') ||
+              lower.contains('.mkv') ||
+              lower.contains('.avi') ||
+              lower.contains('.ts') ||
+              lower.contains('/stream/') ||
+              lower.contains('/movie/') ||
+              lower.contains('/series/') ||
+              widget.channel?.isVod == true) {
+            return [vp.VideoFormat.other, vp.VideoFormat.hls];
+          }
+          return [vp.VideoFormat.hls, vp.VideoFormat.other];
+        }
 
-          final uri = Uri.parse(currentUrl);
-          final controller = vp.VideoPlayerController.networkUrl(
-            uri,
-            formatHint: formatHint,
-            httpHeaders: requestHeaders,
-          );
-          _androidController = controller;
-          controller.addListener(_onAndroidControllerUpdate);
+        candidateLoop:
+        for (int i = 0; i < candidateUrls.length; i++) {
+          final currentUrl = candidateUrls[i];
+          final formatHints = getFormatHintsForUrl(currentUrl);
 
-          try {
-            await controller.initialize();
-            initializedSuccessfully = true;
-            await controller.setVolume(widget.isMuted ? 0.0 : initialVolume);
-            await controller.setPlaybackSpeed(initialPlaybackRate);
-            if (widget.isPlaying) {
-              await controller.play();
-            }
-            break;
-          } catch (initErr) {
-            lastError = initErr;
-            debugPrint(
-              '[VideoPlayerWidget] Candidate failed ($currentUrl): $initErr',
+          for (final formatHint in formatHints) {
+            final uri = Uri.parse(currentUrl);
+            final controller = vp.VideoPlayerController.networkUrl(
+              uri,
+              formatHint: formatHint,
+              httpHeaders: requestHeaders,
             );
-            controller.removeListener(_onAndroidControllerUpdate);
-            await controller.dispose();
-            _androidController = null;
+            _androidController = controller;
+            controller.addListener(_onAndroidControllerUpdate);
+
+            try {
+              await controller.initialize();
+              initializedSuccessfully = true;
+              await controller.setVolume(widget.isMuted ? 0.0 : initialVolume);
+              await controller.setPlaybackSpeed(initialPlaybackRate);
+              if (widget.isPlaying) {
+                await controller.play();
+              }
+              break candidateLoop;
+            } catch (initErr) {
+              lastError = initErr;
+              debugPrint(
+                '[VideoPlayerWidget] Candidate failed ($currentUrl, hint: $formatHint): $initErr',
+              );
+              controller.removeListener(_onAndroidControllerUpdate);
+              await controller.dispose();
+              _androidController = null;
+            }
           }
         }
 
@@ -573,25 +713,43 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
           await _player!.stop();
         }
 
-        Object? lastError;
         bool openedSuccessfully = false;
+        Object? lastError;
+
+        final userAgents = [
+          requestHeaders['User-Agent'] ??
+              'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+          'AppleCoreMedia/1.0.0.19G71 (Apple TV; U; CPU OS 15_6 like Mac OS X)',
+          'VLC/3.0.18 LibVLC/3.0.18',
+        ];
 
         for (final currentUrl in candidateUrls) {
-          try {
-            await _player!.open(
-              Media(currentUrl, httpHeaders: requestHeaders),
-              play: widget.isPlaying,
-            );
-            await _player!.setVolume(widget.isMuted ? 0.0 : (initialVolume * 100.0));
-            await _player!.setRate(initialPlaybackRate);
-            openedSuccessfully = true;
-            break;
-          } catch (desktopErr) {
-            lastError = desktopErr;
-            debugPrint(
-              '[VideoPlayerWidget] Desktop stream candidate error on $currentUrl: $desktopErr',
-            );
+          for (final ua in userAgents) {
+            try {
+              final headers = Map<String, String>.from(requestHeaders);
+              headers['User-Agent'] = ua;
+              try {
+                (_player!.platform as dynamic)?.setProperty('user-agent', ua);
+              } catch (_) {}
+
+              await _player!.open(
+                Media(currentUrl, httpHeaders: headers),
+                play: widget.isPlaying,
+              );
+              await _player!.setVolume(
+                widget.isMuted ? 0.0 : (initialVolume * 100.0),
+              );
+              await _player!.setRate(initialPlaybackRate);
+              openedSuccessfully = true;
+              break;
+            } catch (desktopErr) {
+              lastError = desktopErr;
+              debugPrint(
+                '[VideoPlayerWidget] Desktop stream candidate error on $currentUrl (UA: $ua): $desktopErr',
+              );
+            }
           }
+          if (openedSuccessfully) break;
         }
 
         if (!openedSuccessfully) {
@@ -646,7 +804,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         setState(() {
           _isInitializing = false;
           _isInitialized = false;
-          _errorMessage = msg;
+          _setErrorMessage(msg);
         });
         _startAutoRetry();
       }
@@ -740,7 +898,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       _isInitializing = true;
       _isInitialized = false;
       _isUsingWebPlayer = true;
-      _errorMessage = null;
+      _setErrorMessage(null);
     });
 
     try {
@@ -767,8 +925,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
               _isInitializing = false;
               _isInitialized = false;
               _isUsingWebPlayer = false;
-              _errorMessage =
-                  'Widevine DRM is not supported on macOS WebKit.\nThis channel requires Google Widevine CDM (supported on Android TV & Android devices).';
+              _setErrorMessage(
+                'Widevine DRM is not supported on macOS WebKit.\nThis channel requires Google Widevine CDM (supported on Android TV & Android devices).',
+              );
             });
           }
         }
@@ -785,8 +944,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                 _isInitializing = false;
                 _isInitialized = false;
                 _isUsingWebPlayer = false;
-                _errorMessage =
-                    'Widevine DRM stream detected.\nmacOS WebKit does not support Google Widevine CDM. This channel will play seamlessly on Android TV and Android devices.';
+                _setErrorMessage(
+                  'Widevine DRM stream detected.\nmacOS WebKit does not support Google Widevine CDM. This channel will play seamlessly on Android TV and Android devices.',
+                );
               });
             }
           } else if (text == 'PLAYING') {
@@ -795,7 +955,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                 _isInitializing = false;
                 _isInitialized = true;
                 _isBuffering = false;
-                _errorMessage = null;
+                _setErrorMessage(null);
               });
               ScreenWakeService.keepScreenOn(widget.isPlaying);
             }
@@ -827,8 +987,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                 _isInitializing = false;
                 _isInitialized = false;
                 _isUsingWebPlayer = false;
-                _errorMessage =
-                    'Widevine DRM stream detected.\nmacOS WebKit does not support Google Widevine CDM. This channel will play seamlessly on Android TV and Android devices.';
+                _setErrorMessage(
+                  'Widevine DRM stream detected.\nmacOS WebKit does not support Google Widevine CDM. This channel will play seamlessly on Android TV and Android devices.',
+                );
               });
             }
             return NavigationDecision.prevent;
@@ -925,7 +1086,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
       );
       if (mounted) {
         setState(() {
-          _errorMessage = 'In-app player failed: $e';
+          _setErrorMessage('In-app player failed: $e');
           _isInitializing = false;
           _isUsingWebPlayer = false;
         });
@@ -948,6 +1109,9 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     _disposeWebPlayer();
     _bufferingDebounceTimer?.cancel();
     _bufferingWatchdogTimer?.cancel();
+    try {
+      context.read<TvStateProvider>().registerSeekCallback(null);
+    } catch (_) {}
     if (_androidController != null) {
       final old = _androidController!;
       _androidController = null;
@@ -987,15 +1151,20 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     _errorSubscription?.cancel();
     _playingSubscription?.cancel();
     _positionSubscription?.cancel();
+    _durationSubscription?.cancel();
+    _bufferSubscription?.cancel();
     _bufferingSubscription = null;
     _errorSubscription = null;
     _playingSubscription = null;
     _positionSubscription = null;
+    _durationSubscription = null;
+    _bufferSubscription = null;
     if (_player != null) {
       try {
         final provider = context.read<TvStateProvider>();
         if (provider.activePlayer == _player) {
           provider.registerPlayer(null);
+          provider.registerSeekCallback(null);
         }
       } catch (_) {}
       final playerToDispose = _player;
@@ -1017,51 +1186,64 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     if (AppPlatform.isAndroid) {
       try {
         context.read<TvStateProvider>().registerPlaybackRateCallback(null);
+        context.read<TvStateProvider>().registerSeekCallback(null);
       } catch (_) {}
       _disposeAndroidPlayer();
     } else {
       _disposePlayer();
     }
     _cancelAutoRetry();
+    widget.onErrorChanged?.call(false);
     super.dispose();
   }
 
   Map<String, dynamic> _categorizeError(String error, Channel? channel) {
     final lower = error.toLowerCase();
-    if (channel?.hasDrm == true ||
+    final bool isDrmStream =
+        channel?.hasDrm == true ||
         lower.contains('drm') ||
         lower.contains('widevine') ||
         lower.contains('playready') ||
         lower.contains('clearkey') ||
-        (channel?.streamUrl.contains('/mpd/') == true &&
+        lower.contains('fairplay') ||
+        (channel?.streamUrl.contains('/mpd') == true &&
             (lower.contains('404') ||
                 lower.contains('mediacodec') ||
                 lower.contains('playback failure') ||
                 lower.contains('source error') ||
-                lower.contains('failed to initialize')))) {
+                lower.contains('failed to initialize')));
+
+    if (isDrmStream) {
       return {
-        'icon': Icons.lock_clock_rounded,
-        'color': TvTheme.accentGold,
+        'icon': Icons.security_rounded,
+        'color': const Color(0xFF06B6D4), // Vibrant Electric Cyan
+        'glowColor': const Color(0xFF00E5FF),
         'badge': 'WIDEVINE DRM PROTECTED',
-        'title': 'DRM Protected Channel',
+        'title': 'DRM Encrypted Broadcast',
         'desc': AppPlatform.isMacOS
-            ? 'Channel #${channel?.channelNumber ?? ""} (${channel?.name ?? ""}) requires Google Widevine CDM. macOS WebKit does not include Google Widevine; this DRM channel plays natively on Android TV and Android devices.'
-            : 'Channel #${channel?.channelNumber ?? ""} (${channel?.name ?? ""}) is encrypted with Google Widevine DRM. Playing via in-app hardware CDM engine.',
+            ? 'Channel #${channel?.channelNumber ?? ""} (${channel?.name ?? ""}) requires Google Widevine CDM. macOS libmpv does not bundle Widevine; click below to launch in Chrome/Edge with hardware DRM or use an external player.'
+            : 'Channel #${channel?.channelNumber ?? ""} (${channel?.name ?? ""}) requires hardware DRM decryption. Native hardware pipeline initializing.',
         'isDrm': true,
+        'isNoSignal': false,
       };
     }
+
     if (lower.contains('500') ||
         lower.contains('internal server error') ||
         lower.contains('target vector')) {
       return {
         'icon': Icons.dns_rounded,
-        'color': Colors.redAccent,
+        'color': const Color(0xFFEF4444), // Crimson
+        'glowColor': const Color(0xFFF87171),
         'badge': 'HTTP 500 SERVER ERROR',
-        'title': 'Upstream Proxy Scraper Failure',
+        'title': 'Upstream Ingest Server Error',
         'desc':
-            'The stream proxy (port 8443) failed to parse upstream source target vectors for this channel. The upstream website markup or token generator has changed.',
+            'The stream proxy or broadcaster server returned an internal 500 error while parsing upstream target streams.',
+        'isDrm': false,
+        'isNoSignal': false,
       };
     }
+
     if (lower.contains('502') ||
         lower.contains('503') ||
         lower.contains('bad gateway') ||
@@ -1069,68 +1251,92 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         lower.contains('host offline')) {
       return {
         'icon': Icons.cloud_sync_rounded,
-        'color': Colors.orangeAccent,
+        'color': const Color(0xFFF59E0B), // Amber
+        'glowColor': const Color(0xFFFBBF24),
         'badge': 'HTTP 503 SERVICE UNAVAILABLE',
-        'title': 'Upstream Host Offline / Cold Start',
+        'title': 'Transponder Warming Up',
         'desc':
-            'The remote stream host is offline or the proxy is warming up the upstream session. Automatic retry in progress...',
+            'The remote streaming host is warming up upstream sessions or temporarily unreachable. Automatic retry in progress...',
+        'isDrm': false,
+        'isNoSignal': false,
       };
     }
+
     if (lower.contains('403') ||
         lower.contains('forbidden') ||
         lower.contains('access denied')) {
       return {
         'icon': Icons.block_rounded,
-        'color': Colors.deepOrangeAccent,
+        'color': const Color(0xFFF97316), // Orange
+        'glowColor': const Color(0xFFFB923C),
         'badge': 'HTTP 403 FORBIDDEN',
         'title': 'Access Forbidden / Token Expired',
         'desc':
-            'The broadcast server rejected this playback session. The streaming token, signature, or user-agent may have expired.',
+            'The broadcast CDN server rejected this session. The streaming token, key signature, or user-agent has expired.',
+        'isDrm': false,
+        'isNoSignal': false,
       };
     }
+
     if (lower.contains('404') || lower.contains('not found')) {
       return {
-        'icon': Icons.cloud_off_rounded,
-        'color': Colors.redAccent,
-        'badge': 'HTTP 404 NOT FOUND',
-        'title': 'Stream Offline or Relocated',
+        'icon': Icons.satellite_alt_rounded,
+        'color': const Color(0xFFEF4444), // Crimson
+        'glowColor': const Color(0xFFF87171),
+        'badge': 'NO SIGNAL (404)',
+        'title': 'Signal Lost / Feed Offline',
         'desc':
-            'The remote stream URL returned 404 Not Found. The channel may be temporarily down or undergoing maintenance.',
+            'The streaming transponder returned 404 Not Found. This channel feed is temporarily offline or relocated.',
+        'isDrm': false,
+        'isNoSignal': true,
       };
     }
+
     if (lower.contains('codec') ||
         lower.contains('unsupported') ||
         lower.contains('format') ||
         lower.contains('demux')) {
       return {
         'icon': Icons.video_file_rounded,
-        'color': Colors.purpleAccent,
+        'color': const Color(0xFFA855F7), // Purple
+        'glowColor': const Color(0xFFC084FC),
         'badge': 'FORMAT UNSUPPORTED',
         'title': 'Incompatible Stream Codec',
         'desc':
-            'The stream packaging or audio/video codec is not supported by the platform AV engine.',
+            'The audio/video container or encoding profile is not supported by the platform AV demuxer.',
+        'isDrm': false,
+        'isNoSignal': false,
       };
     }
+
     if (lower.contains('timeout') ||
         lower.contains('timed out') ||
         lower.contains('connection refused') ||
-        lower.contains('socket')) {
+        lower.contains('socket') ||
+        lower.contains('failed to open')) {
       return {
-        'icon': Icons.wifi_off_rounded,
-        'color': Colors.amberAccent,
-        'badge': 'NETWORK TIMEOUT',
-        'title': 'Connection Timed Out',
+        'icon': Icons.satellite_alt_rounded,
+        'color': const Color(0xFFEF4444), // Crimson
+        'glowColor': const Color(0xFFF87171),
+        'badge': 'NO SIGNAL',
+        'title': 'No Broadcast Signal',
         'desc':
-            'Unable to reach the broadcast streaming server. The upstream stream took too long to deliver chunks.',
+            'No broadcast signal received from the transponder. Checking alternative stream feeds or re-establishing connection.',
+        'isDrm': false,
+        'isNoSignal': true,
       };
     }
+
     return {
       'icon': Icons.tv_off_rounded,
-      'color': Colors.redAccent,
+      'color': const Color(0xFFEF4444),
+      'glowColor': const Color(0xFFF87171),
       'badge': 'NO SIGNAL',
       'title': 'Playback Interrupted',
       'desc':
-          'Unable to play this broadcast stream. Retry connection or zap to an alternate channel.',
+          'Unable to receive broadcast packets. Check your network connection or zap to an alternate channel.',
+      'isDrm': false,
+      'isNoSignal': true,
     };
   }
 
@@ -1138,673 +1344,897 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     final tvState = context.read<TvStateProvider>();
     final channel = widget.channel;
     final errorInfo = _categorizeError(_errorMessage ?? '', channel);
+    final Color accentColor = errorInfo['color'] as Color;
+    final Color glowColor = (errorInfo['glowColor'] as Color?) ?? accentColor;
+    final bool isDrm = errorInfo['isDrm'] == true;
+    final bool isNoSignal = errorInfo['isNoSignal'] == true;
 
-    final isCompact = constraints.maxHeight < 360 || constraints.maxWidth < 450;
+    final double width = constraints.maxWidth;
+    final double height = constraints.maxHeight;
 
+    // Responsive Tiers:
+    // 1. Ultra-Compact: PiP / split-screen preview tiles (<240h or <360w)
+    // 2. Compact: Mobile portrait / small dialogs (<480h or <580w)
+    // 3. Full: Standard TV / Desktop / Widescreen
+    final bool isUltraCompact = height < 240 || width < 360;
+    final bool isCompact = !isUltraCompact && (height < 480 || width < 580);
+
+    // ==========================================
+    // TIER 1: ULTRA-COMPACT (PiP / Mini Grid Tiles)
+    // ==========================================
+    if (isUltraCompact) {
+      return Container(
+        color: const Color(0xFF090A0F),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: BoxDecoration(
+                      color: accentColor,
+                      shape: BoxShape.circle,
+                      boxShadow: [
+                        BoxShadow(
+                          color: glowColor.withValues(alpha: 0.9),
+                          blurRadius: 6,
+                          spreadRadius: 1,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Icon(
+                    errorInfo['icon'] as IconData,
+                    size: 13,
+                    color: accentColor,
+                  ),
+                  const SizedBox(width: 5),
+                  Flexible(
+                    child: Text(
+                      errorInfo['badge'] as String,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.8,
+                        color: accentColor,
+                      ),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ),
+              if (channel != null) ...[
+                const SizedBox(height: 3),
+                Text(
+                  '#${channel.channelNumber}  ${channel.name}',
+                  style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: TvTheme.textBright,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ],
+              const SizedBox(height: 6),
+              // Mini Action Buttons
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () {
+                        if (channel != null) {
+                          _openStream(channel.streamUrl);
+                        }
+                      },
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: TvTheme.primary.withValues(alpha: 0.85),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.refresh_rounded,
+                              size: 11,
+                              color: Colors.white,
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              'Retry',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: Colors.white,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => tvState.playNextChannel(),
+                      borderRadius: BorderRadius.circular(4),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 8,
+                          vertical: 3,
+                        ),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.12),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(
+                              Icons.arrow_downward_rounded,
+                              size: 11,
+                              color: TvTheme.textBright,
+                            ),
+                            SizedBox(width: 3),
+                            Text(
+                              'CH+',
+                              style: TextStyle(
+                                fontSize: 10,
+                                color: TvTheme.textBright,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (isDrm && AppPlatform.isMacOS && channel != null) ...[
+                    const SizedBox(width: 6),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: () => ExternalPlayerService.launchDrmPlayer(
+                          context: context,
+                          channel: channel,
+                        ),
+                        borderRadius: BorderRadius.circular(4),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(
+                              0xFF10B981,
+                            ).withValues(alpha: 0.85),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.open_in_browser_rounded,
+                                size: 11,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 3),
+                              Text(
+                                'Chrome',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    // ==========================================
+    // TIER 2 & 3: COMPACT & FULL SCREEN CINEMATIC UI
+    // ==========================================
     return Stack(
       children: [
-        // 1. Dark Ambient Backdrop with optional blurred channel logo
+        // 1. Ambient Background Layer with Rich Radial Glow
         Positioned.fill(
-          child: Container(
-            decoration: const BoxDecoration(
-              gradient: RadialGradient(
-                center: Alignment.center,
-                radius: 1.2,
-                colors: [Color(0xFF161922), Color(0xFF090A0E), Colors.black],
+          child: IgnorePointer(
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  center: Alignment.center,
+                  radius: 1.25,
+                  colors: [
+                    glowColor.withValues(alpha: isDrm ? 0.16 : 0.13),
+                    const Color(0xFF11141D),
+                    const Color(0xFF08090C),
+                    Colors.black,
+                  ],
+                  stops: const [0.0, 0.45, 0.85, 1.0],
+                ),
               ),
             ),
           ),
         ),
 
-        // Optional Ambient Blurred Glow of Channel Logo
+        // 2. High-Tech Background Graphic Pattern
+        // For DRM: Cyber Shield / Matrix Overlay
+        // For No Signal: Subtle Radar / Geometric Broadcast Waves
+        Positioned.fill(
+          child: IgnorePointer(
+            child: Opacity(
+              opacity: 0.05,
+              child: CustomPaint(
+                painter: _BroadcastPatternPainter(
+                  isDrm: isDrm,
+                  isNoSignal: isNoSignal,
+                  accentColor: accentColor,
+                ),
+              ),
+            ),
+          ),
+        ),
+
+        // 3. Optional Blurred Channel Logo Aura
         if (channel?.logoUrl != null)
           Positioned.fill(
-            child: Opacity(
-              opacity: 0.14,
-              child: ImageFiltered(
-                imageFilter: ImageFilter.blur(sigmaX: 50, sigmaY: 50),
-                child: Image.network(
-                  channel!.logoUrl!,
-                  fit: BoxFit.cover,
-                  errorBuilder: (_, _, _) => const SizedBox.shrink(),
+            child: IgnorePointer(
+              child: Opacity(
+                opacity: 0.10,
+                child: ImageFiltered(
+                  imageFilter: ImageFilter.blur(sigmaX: 65, sigmaY: 65),
+                  child: Image.network(
+                    channel!.logoUrl!,
+                    fit: BoxFit.cover,
+                    errorBuilder: (_, _, _) => const SizedBox.shrink(),
+                  ),
                 ),
               ),
             ),
           ),
 
-        // 2. Main Content Card
+        // 4. Main Responsive Glassmorphic Card
         Positioned.fill(
           child: Center(
             child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-              child: Container(
-                constraints: const BoxConstraints(maxWidth: 580),
-                padding: EdgeInsets.all(isCompact ? 16 : 28),
-                decoration: BoxDecoration(
-                  color: TvTheme.surfaceElevated.withValues(alpha: 0.90),
-                  borderRadius: BorderRadius.circular(16),
-                  border: Border.all(
-                    color: (errorInfo['color'] as Color).withValues(
-                      alpha: 0.35,
-                    ),
-                    width: 1.5,
+              padding: EdgeInsets.symmetric(
+                horizontal: isCompact ? 16 : 28,
+                vertical: isCompact ? 14 : 24,
+              ),
+              child: Material(
+                type: MaterialType.transparency,
+                child: Container(
+                  constraints: BoxConstraints(maxWidth: isCompact ? 500 : 640),
+                  padding: EdgeInsets.symmetric(
+                    horizontal: isCompact ? 20 : 36,
+                    vertical: isCompact ? 20 : 32,
                   ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.6),
-                      blurRadius: 28,
-                      offset: const Offset(0, 10),
+                  decoration: BoxDecoration(
+                    color: TvTheme.surfaceElevated.withValues(alpha: 0.88),
+                    borderRadius: BorderRadius.circular(22),
+                    border: Border.all(
+                      color: accentColor.withValues(alpha: 0.45),
+                      width: 1.5,
                     ),
-                  ],
-                ),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Status Badge & Icon Row
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
+                    boxShadow: [
+                      BoxShadow(
+                        color: glowColor.withValues(alpha: 0.22),
+                        blurRadius: 36,
+                        spreadRadius: 2,
+                      ),
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.75),
+                        blurRadius: 30,
+                        offset: const Offset(0, 14),
+                      ),
+                    ],
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // A. Top Pill & Group Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          // Status Pill with Glowing Dot
+                          Container(
+                            padding: EdgeInsets.symmetric(
+                              horizontal: isCompact ? 10 : 14,
+                              vertical: isCompact ? 4 : 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: accentColor.withValues(alpha: 0.16),
+                              borderRadius: BorderRadius.circular(20),
+                              border: Border.all(
+                                color: accentColor.withValues(alpha: 0.65),
+                                width: 1.2,
+                              ),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: glowColor.withValues(alpha: 0.25),
+                                  blurRadius: 10,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 8,
+                                  height: 8,
+                                  decoration: BoxDecoration(
+                                    color: accentColor,
+                                    shape: BoxShape.circle,
+                                    boxShadow: [
+                                      BoxShadow(
+                                        color: glowColor,
+                                        blurRadius: 8,
+                                        spreadRadius: 1,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  errorInfo['badge'] as String,
+                                  style: TextStyle(
+                                    fontSize: isCompact ? 10.5 : 12,
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: 1.1,
+                                    color: accentColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          if (channel?.groupName != null) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isCompact ? 8 : 10,
+                                vertical: isCompact ? 4 : 6,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.08),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.12),
+                                ),
+                              ),
+                              child: Text(
+                                channel!.groupName!.toUpperCase(),
+                                style: TextStyle(
+                                  fontSize: isCompact ? 10 : 11,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 0.8,
+                                  color: TvTheme.textMuted,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+
+                      SizedBox(height: isCompact ? 14 : 20),
+
+                      // B. Hero Circular Icon with Pulsing Ambient Aura
+                      Container(
+                        width: isCompact ? 60 : 76,
+                        height: isCompact ? 60 : 76,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          gradient: RadialGradient(
+                            colors: [
+                              accentColor.withValues(alpha: 0.25),
+                              accentColor.withValues(alpha: 0.04),
+                            ],
+                          ),
+                          border: Border.all(
+                            color: accentColor.withValues(alpha: 0.55),
+                            width: 1.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: glowColor.withValues(alpha: 0.35),
+                              blurRadius: 24,
+                              spreadRadius: 2,
+                            ),
+                          ],
+                        ),
+                        child: Icon(
+                          errorInfo['icon'] as IconData,
+                          size: isCompact ? 30 : 38,
+                          color: accentColor,
+                        ),
+                      ),
+
+                      SizedBox(height: isCompact ? 12 : 18),
+
+                      // C. Channel Identity Badge (Logo + Name)
+                      if (channel != null) ...[
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            if (channel.logoUrl != null) ...[
+                              Container(
+                                width: isCompact ? 32 : 40,
+                                height: isCompact ? 32 : 40,
+                                decoration: BoxDecoration(
+                                  color: TvTheme.surfaceFocus,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: TvTheme.borderSubtle,
+                                  ),
+                                ),
+                                clipBehavior: Clip.antiAlias,
+                                child: Image.network(
+                                  channel.logoUrl!,
+                                  fit: BoxFit.contain,
+                                  errorBuilder: (_, _, _) => const Icon(
+                                    Icons.live_tv_rounded,
+                                    size: 20,
+                                    color: TvTheme.primaryAccent,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 10),
+                            ],
+                            Flexible(
+                              child: Text(
+                                '#${channel.channelNumber}  ${channel.name}',
+                                style: TextStyle(
+                                  fontSize: isCompact ? 16 : 20,
+                                  fontWeight: FontWeight.bold,
+                                  color: TvTheme.textBright,
+                                  letterSpacing: 0.3,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                      ],
+
+                      // D. Primary Title
+                      Text(
+                        errorInfo['title'] as String,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: isCompact ? 16 : 20,
+                          fontWeight: FontWeight.w800,
+                          color: Colors.white,
+                          letterSpacing: 0.2,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+
+                      // E. Informative Description
+                      Text(
+                        errorInfo['desc'] as String,
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: isCompact ? 12 : 13.5,
+                          color: TvTheme.textMuted,
+                          height: 1.45,
+                        ),
+                      ),
+
+                      // F. Auto-Retry Indicator Pill
+                      if (_isAutoRetrying) ...[
+                        SizedBox(height: isCompact ? 12 : 16),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 10,
-                            vertical: 4,
+                            horizontal: 14,
+                            vertical: 8,
                           ),
                           decoration: BoxDecoration(
-                            color: (errorInfo['color'] as Color).withValues(
-                              alpha: 0.2,
-                            ),
-                            borderRadius: BorderRadius.circular(6),
+                            color: TvTheme.primary.withValues(alpha: 0.16),
+                            borderRadius: BorderRadius.circular(10),
                             border: Border.all(
-                              color: (errorInfo['color'] as Color).withValues(
-                                alpha: 0.7,
-                              ),
+                              color: TvTheme.primary.withValues(alpha: 0.35),
                             ),
                           ),
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                errorInfo['icon'] as IconData,
-                                size: 14,
-                                color: errorInfo['color'] as Color,
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                errorInfo['badge'] as String,
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.bold,
-                                  letterSpacing: 0.8,
-                                  color: errorInfo['color'] as Color,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (channel?.groupName != null) ...[
-                          const SizedBox(width: 8),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8,
-                              vertical: 4,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: 0.08),
-                              borderRadius: BorderRadius.circular(6),
-                            ),
-                            child: Text(
-                              channel!.groupName!,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: TvTheme.textMuted,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-
-                    // Channel Identity Row
-                    if (channel != null) ...[
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          if (channel.logoUrl != null) ...[
-                            Container(
-                              width: 38,
-                              height: 38,
-                              decoration: BoxDecoration(
-                                color: TvTheme.surfaceFocus,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(color: TvTheme.borderSubtle),
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: Image.network(
-                                channel.logoUrl!,
-                                fit: BoxFit.contain,
-                                errorBuilder: (_, _, _) => const Icon(
-                                  Icons.live_tv_rounded,
-                                  size: 20,
+                              const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
                                   color: TvTheme.primaryAccent,
                                 ),
                               ),
-                            ),
-                            const SizedBox(width: 12),
-                          ],
-                          Flexible(
-                            child: Text(
-                              '#${channel.channelNumber}  ${channel.name}',
-                              style: TextStyle(
-                                fontSize: isCompact ? 16 : 20,
-                                fontWeight: FontWeight.bold,
-                                color: TvTheme.textBright,
-                              ),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                    ],
-
-                    // Primary Title
-                    Text(
-                      errorInfo['title'] as String,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: isCompact ? 15 : 18,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.white,
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-
-                    // Description
-                    Text(
-                      errorInfo['desc'] as String,
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        fontSize: isCompact ? 12 : 13,
-                        color: TvTheme.textMuted,
-                        height: 1.4,
-                      ),
-                    ),
-
-                    // Auto-retry notice
-                    if (_isAutoRetrying) ...[
-                      const SizedBox(height: 14),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 14,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: TvTheme.primary.withValues(alpha: 0.15),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: TvTheme.primary.withValues(alpha: 0.3),
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const SizedBox(
-                              width: 14,
-                              height: 14,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                color: TvTheme.primaryAccent,
-                              ),
-                            ),
-                            const SizedBox(width: 10),
-                            Text(
-                              'Auto-reconnecting in ${_autoRetryCountdown}s... (Attempt ${_retryCount + 1}/3)',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: TvTheme.primaryAccent,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            InkWell(
-                              onTap: _cancelAutoRetry,
-                              child: const Text(
-                                'Cancel',
-                                style: TextStyle(
+                              const SizedBox(width: 10),
+                              Text(
+                                'Auto-reconnecting in ${_autoRetryCountdown}s... (Attempt ${_retryCount + 1}/3)',
+                                style: const TextStyle(
                                   fontSize: 12,
-                                  color: Colors.white70,
-                                  decoration: TextDecoration.underline,
+                                  fontWeight: FontWeight.w600,
+                                  color: TvTheme.primaryAccent,
                                 ),
                               ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-
-                    const SizedBox(height: 22),
-
-                    // TV Action Buttons (D-Pad Focusable)
-                    Wrap(
-                      spacing: 10,
-                      runSpacing: 10,
-                      alignment: WrapAlignment.center,
-                      children: [
-                        if (AppPlatform.isMacOS && channel != null) ...[
-                          Builder(
-                            builder: (context) {
-                              final ch = channel;
-                              return Wrap(
-                                spacing: 8,
-                                runSpacing: 8,
-                                alignment: WrapAlignment.center,
-                                children: [
-                                  ElevatedButton.icon(
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: const Color(0xFF10B981),
-                                      foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 18,
-                                        vertical: 12,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                      elevation: 4,
+                              const SizedBox(width: 10),
+                              Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: _cancelAutoRetry,
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: 6,
+                                      vertical: 2,
                                     ),
-                                    onPressed: () =>
-                                        ExternalPlayerService.launchDrmPlayer(
-                                          context: context,
-                                          channel: ch,
-                                        ),
-                                    icon: const Icon(
-                                      Icons.open_in_browser_rounded,
-                                      size: 18,
-                                    ),
-                                    label: const Text(
-                                      'Launch Chrome / Edge Player (Widevine CDM)',
+                                    child: Text(
+                                      'Cancel',
                                       style: TextStyle(
-                                        fontWeight: FontWeight.bold,
+                                        fontSize: 12,
+                                        color: Colors.white70,
+                                        decoration: TextDecoration.underline,
                                       ),
                                     ),
-                                  ),
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.white,
-                                      side: const BorderSide(
-                                        color: Colors.white30,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 12,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    onPressed: () async {
-                                      final url =
-                                          ch.inAppWebPlayerUrl ??
-                                          ch.webPlayerUrl ??
-                                          ch.streamUrl;
-                                      await launchUrl(
-                                        Uri.parse(url),
-                                        mode: LaunchMode
-                                            .externalNonBrowserApplication,
-                                      );
-                                    },
-                                    icon: const Icon(
-                                      Icons.open_in_new_rounded,
-                                      size: 16,
-                                    ),
-                                    label: const Text(
-                                      'Open in Default Browser',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                  // if (ExternalPlayerService.isVlcInstalled())
-                                  OutlinedButton.icon(
-                                    style: OutlinedButton.styleFrom(
-                                      foregroundColor: Colors.orangeAccent,
-                                      side: const BorderSide(
-                                        color: Colors.orangeAccent,
-                                      ),
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 12,
-                                      ),
-                                      shape: RoundedRectangleBorder(
-                                        borderRadius: BorderRadius.circular(8),
-                                      ),
-                                    ),
-                                    onPressed: () async {
-                                      await ExternalPlayerService.launchInVlc(
-                                        context: context,
-                                        streamUrl: ch.streamUrl,
-                                      );
-                                    },
-                                    icon: const Icon(
-                                      Icons.play_circle_outline_rounded,
-                                      size: 16,
-                                    ),
-                                    label: const Text(
-                                      'Open in VLC',
-                                      style: TextStyle(
-                                        fontWeight: FontWeight.bold,
-                                        fontSize: 13,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
-                        ],
-                        if (!AppPlatform.isMacOS &&
-                            !AppPlatform.isWeb &&
-                            channel != null &&
-                            channel.inAppWebPlayerUrl != null &&
-                            !_isUsingWebPlayer) ...[
-                          Builder(
-                            builder: (context) {
-                              final ch = channel;
-                              return ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2563EB),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  elevation: 4,
-                                ),
-                                onPressed: () =>
-                                    _initInAppWebPlayer(ch.inAppWebPlayerUrl!),
-                                icon: const Icon(
-                                  Icons.play_circle_fill_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  'Play via In-App Engine (#${ch.channelNumber})',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
                                   ),
                                 ),
-                              );
-                            },
+                              ),
+                            ],
                           ),
-                        ],
-                        if (AppPlatform.isWeb &&
-                            channel != null &&
-                            channel.inAppWebPlayerUrl != null) ...[
-                          Builder(
-                            builder: (context) {
-                              final ch = channel;
-                              return ElevatedButton.icon(
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: const Color(0xFF2563EB),
-                                  foregroundColor: Colors.white,
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 18,
-                                    vertical: 12,
-                                  ),
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
-                                  elevation: 4,
-                                ),
-                                onPressed: () {
-                                  launchUrl(
-                                    Uri.parse(ch.inAppWebPlayerUrl!),
-                                    mode: LaunchMode.externalApplication,
-                                  );
-                                },
-                                icon: const Icon(
-                                  Icons.open_in_new_rounded,
-                                  size: 18,
-                                ),
-                                label: Text(
-                                  'Open Web Player in Tab (#${ch.channelNumber})',
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                        ],
-
-                        // Retry Reconnect
-                        ElevatedButton.icon(
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: TvTheme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 18,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          onPressed: () {
-                            if (widget.channel != null) {
-                              _openStream(widget.channel!.streamUrl);
-                            }
-                          },
-                          icon: const Icon(Icons.refresh_rounded, size: 18),
-                          label: const Text(
-                            'Retry Connection',
-                            style: TextStyle(fontWeight: FontWeight.bold),
-                          ),
-                        ),
-
-                        // Zap Previous
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: TvTheme.textBright,
-                            side: const BorderSide(color: TvTheme.borderSubtle),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          onPressed: () => tvState.playPreviousChannel(),
-                          icon: const Icon(
-                            Icons.arrow_upward_rounded,
-                            size: 16,
-                          ),
-                          label: const Text('CH -'),
-                        ),
-
-                        // Zap Next
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: TvTheme.textBright,
-                            side: const BorderSide(color: TvTheme.borderSubtle),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          onPressed: () => tvState.playNextChannel(),
-                          icon: const Icon(
-                            Icons.arrow_downward_rounded,
-                            size: 16,
-                          ),
-                          label: const Text('CH +'),
-                        ),
-
-                        // Channel Guide Toggle
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: TvTheme.textBright,
-                            side: const BorderSide(color: TvTheme.borderSubtle),
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 14,
-                              vertical: 12,
-                            ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                          ),
-                          onPressed: () => tvState.toggleEpgOverlay(),
-                          icon: const Icon(Icons.menu_rounded, size: 16),
-                          label: const Text('Guide'),
                         ),
                       ],
-                    ),
 
-                    const SizedBox(height: 14),
+                      SizedBox(height: isCompact ? 18 : 24),
 
-                    // Diagnostics Accordion Toggle
-                    TextButton.icon(
-                      onPressed: () {
-                        setState(() {
-                          _showTechnicalDetails = !_showTechnicalDetails;
-                        });
-                      },
-                      icon: Icon(
-                        _showTechnicalDetails
-                            ? Icons.expand_less_rounded
-                            : Icons.expand_more_rounded,
-                        size: 16,
-                        color: TvTheme.textMuted,
-                      ),
-                      label: Text(
-                        _showTechnicalDetails
-                            ? 'Hide Diagnostics'
-                            : 'Show Technical Diagnostics',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: TvTheme.textMuted,
-                        ),
-                      ),
-                    ),
-
-                    // Expanded Technical Diagnostics
-                    if (_showTechnicalDetails && channel != null) ...[
-                      const SizedBox(height: 8),
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: TvTheme.borderSubtle),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                const Text(
-                                  'Stream URL:',
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                    color: TvTheme.primaryAccent,
+                      // G. Responsive Action Buttons (D-Pad Focusable)
+                      Wrap(
+                        spacing: 10,
+                        runSpacing: 10,
+                        alignment: WrapAlignment.center,
+                        children: [
+                          // macOS Widevine Helper Buttons
+                          if (AppPlatform.isMacOS &&
+                              channel != null &&
+                              isDrm) ...[
+                            Builder(
+                              builder: (context) {
+                                final ch = channel;
+                                return ElevatedButton.icon(
+                                  autofocus: true,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF10B981),
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isCompact ? 14 : 20,
+                                      vertical: isCompact ? 10 : 13,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                    elevation: 5,
+                                    shadowColor: const Color(
+                                      0xFF10B981,
+                                    ).withValues(alpha: 0.4),
                                   ),
-                                ),
-                                const Spacer(),
-                                InkWell(
-                                  onTap: () {
-                                    Clipboard.setData(
-                                      ClipboardData(text: channel.streamUrl),
-                                    );
-                                    TvToast.info(
-                                      context,
-                                      'Stream URL copied to clipboard',
+                                  onPressed: () =>
+                                      ExternalPlayerService.launchDrmPlayer(
+                                        context: context,
+                                        channel: ch,
+                                      ),
+                                  icon: const Icon(
+                                    Icons.open_in_browser_rounded,
+                                    size: 18,
+                                  ),
+                                  label: const Text(
+                                    'Launch Chrome / Edge (Widevine CDM)',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                            Builder(
+                              builder: (context) {
+                                final ch = channel;
+                                return OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.white,
+                                    side: BorderSide(
+                                      color: Colors.white.withValues(
+                                        alpha: 0.25,
+                                      ),
+                                    ),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isCompact ? 12 : 16,
+                                      vertical: isCompact ? 10 : 13,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: () async {
+                                    final url =
+                                        ch.inAppWebPlayerUrl ??
+                                        ch.webPlayerUrl ??
+                                        ch.streamUrl;
+                                    await launchUrl(
+                                      Uri.parse(url),
+                                      mode: LaunchMode.externalApplication,
                                     );
                                   },
-                                  child: const Row(
-                                    children: [
-                                      Icon(
-                                        Icons.copy_rounded,
-                                        size: 12,
-                                        color: TvTheme.primaryAccent,
-                                      ),
-                                      SizedBox(width: 4),
-                                      Text(
-                                        'Copy',
-                                        style: TextStyle(
-                                          fontSize: 11,
-                                          color: TvTheme.primaryAccent,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
-                                    ],
+                                  icon: const Icon(
+                                    Icons.open_in_new_rounded,
+                                    size: 16,
                                   ),
-                                ),
-                              ],
+                                  label: const Text(
+                                    'Default Browser',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                );
+                              },
                             ),
-                            const SizedBox(height: 4),
-                            SelectableText(
-                              channel.streamUrl,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: Colors.white70,
-                                fontFamily: 'monospace',
+                            Builder(
+                              builder: (context) {
+                                final ch = channel;
+                                return OutlinedButton.icon(
+                                  style: OutlinedButton.styleFrom(
+                                    foregroundColor: Colors.orangeAccent,
+                                    side: const BorderSide(
+                                      color: Colors.orangeAccent,
+                                    ),
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isCompact ? 12 : 16,
+                                      vertical: isCompact ? 10 : 13,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: () async {
+                                    await ExternalPlayerService.launchInVlc(
+                                      context: context,
+                                      streamUrl: ch.streamUrl,
+                                    );
+                                  },
+                                  icon: const Icon(
+                                    Icons.play_circle_outline_rounded,
+                                    size: 16,
+                                  ),
+                                  label: const Text(
+                                    'VLC Player',
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+
+                          // Standard In-App Web Engine for Mobile / Other
+                          if (!AppPlatform.isMacOS &&
+                              !AppPlatform.isWeb &&
+                              channel != null &&
+                              channel.inAppWebPlayerUrl != null &&
+                              !_isUsingWebPlayer) ...[
+                            Builder(
+                              builder: (context) {
+                                final ch = channel;
+                                return ElevatedButton.icon(
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF2563EB),
+                                    foregroundColor: Colors.white,
+                                    padding: EdgeInsets.symmetric(
+                                      horizontal: isCompact ? 14 : 18,
+                                      vertical: isCompact ? 10 : 12,
+                                    ),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(10),
+                                    ),
+                                  ),
+                                  onPressed: () => _initInAppWebPlayer(
+                                    ch.inAppWebPlayerUrl!,
+                                  ),
+                                  icon: const Icon(
+                                    Icons.play_circle_fill_rounded,
+                                    size: 18,
+                                  ),
+                                  label: Text(
+                                    'In-App Web Engine (#${ch.channelNumber})',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                );
+                              },
+                            ),
+                          ],
+
+                          // Standard Retry Reconnect
+                          ElevatedButton.icon(
+                            autofocus: !isDrm,
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: TvTheme.primary,
+                              foregroundColor: Colors.white,
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isCompact ? 14 : 18,
+                                vertical: isCompact ? 10 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              elevation: 4,
+                            ),
+                            onPressed: () {
+                              if (widget.channel != null) {
+                                _openStream(widget.channel!.streamUrl);
+                              }
+                            },
+                            icon: const Icon(Icons.refresh_rounded, size: 18),
+                            label: const Text(
+                              'Retry Connection',
+                              style: TextStyle(fontWeight: FontWeight.bold),
+                            ),
+                          ),
+
+                          // Channel Switcher (Previous Channel)
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: TvTheme.textBright,
+                              side: const BorderSide(
+                                color: TvTheme.borderSubtle,
+                              ),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isCompact ? 12 : 14,
+                                vertical: isCompact ? 10 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
                               ),
                             ),
-                            if (channel.hasDrm) ...[
-                              const SizedBox(height: 8),
-                              Text(
-                                'DRM Scheme: ${channel.drmType?.toUpperCase()}',
-                                style: const TextStyle(
-                                  fontSize: 11,
-                                  color: TvTheme.accentGold,
-                                  fontWeight: FontWeight.bold,
-                                ),
+                            onPressed: () => tvState.playPreviousChannel(),
+                            icon: const Icon(
+                              Icons.arrow_upward_rounded,
+                              size: 16,
+                            ),
+                            label: const Text('CH -'),
+                          ),
+
+                          // Channel Switcher (Next Channel)
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: TvTheme.textBright,
+                              side: const BorderSide(
+                                color: TvTheme.borderSubtle,
                               ),
-                              if (channel.drmLicenseUrl != null)
-                                SelectableText(
-                                  'License Server: ${channel.drmLicenseUrl}',
-                                  style: const TextStyle(
-                                    fontSize: 10,
-                                    color: Colors.white60,
-                                    fontFamily: 'monospace',
-                                  ),
-                                ),
-                            ],
-                            if (channel.inAppWebPlayerUrl != null) ...[
-                              const SizedBox(height: 8),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isCompact ? 12 : 14,
+                                vertical: isCompact ? 10 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: () => tvState.playNextChannel(),
+                            icon: const Icon(
+                              Icons.arrow_downward_rounded,
+                              size: 16,
+                            ),
+                            label: const Text('CH +'),
+                          ),
+
+                          // Channel Guide EPG Toggle
+                          OutlinedButton.icon(
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: TvTheme.textBright,
+                              side: const BorderSide(
+                                color: TvTheme.borderSubtle,
+                              ),
+                              padding: EdgeInsets.symmetric(
+                                horizontal: isCompact ? 12 : 14,
+                                vertical: isCompact ? 10 : 12,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                            ),
+                            onPressed: () => tvState.toggleEpgOverlay(),
+                            icon: const Icon(Icons.menu_rounded, size: 16),
+                            label: const Text('Guide'),
+                          ),
+                        ],
+                      ),
+
+                      SizedBox(height: isCompact ? 10 : 14),
+
+                      // H. Technical Diagnostics Accordion Toggle
+                      TextButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _showTechnicalDetails = !_showTechnicalDetails;
+                          });
+                        },
+                        icon: Icon(
+                          _showTechnicalDetails
+                              ? Icons.expand_less_rounded
+                              : Icons.expand_more_rounded,
+                          size: 16,
+                          color: TvTheme.textMuted,
+                        ),
+                        label: Text(
+                          _showTechnicalDetails
+                              ? 'Hide Diagnostics'
+                              : 'Show Technical Diagnostics',
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: TvTheme.textMuted,
+                          ),
+                        ),
+                      ),
+
+                      // Expanded Technical Diagnostics Panel
+                      if (_showTechnicalDetails && channel != null) ...[
+                        const SizedBox(height: 8),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(14),
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.6),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: TvTheme.borderSubtle),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
                               Row(
                                 children: [
                                   const Text(
-                                    'In-App Player URL:',
+                                    'Stream URL:',
                                     style: TextStyle(
                                       fontSize: 11,
                                       fontWeight: FontWeight.bold,
-                                      color: Colors.blueAccent,
+                                      color: TvTheme.primaryAccent,
                                     ),
                                   ),
                                   const Spacer(),
                                   InkWell(
                                     onTap: () {
                                       Clipboard.setData(
-                                        ClipboardData(
-                                          text: channel.inAppWebPlayerUrl!,
-                                        ),
+                                        ClipboardData(text: channel.streamUrl),
                                       );
                                       TvToast.info(
                                         context,
-                                        'In-App Player URL copied to clipboard',
+                                        'Stream URL copied to clipboard',
                                       );
                                     },
                                     child: const Row(
@@ -1812,14 +2242,14 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                                         Icon(
                                           Icons.copy_rounded,
                                           size: 12,
-                                          color: Colors.blueAccent,
+                                          color: TvTheme.primaryAccent,
                                         ),
                                         SizedBox(width: 4),
                                         Text(
                                           'Copy',
                                           style: TextStyle(
                                             fontSize: 11,
-                                            color: Colors.blueAccent,
+                                            color: TvTheme.primaryAccent,
                                             fontWeight: FontWeight.bold,
                                           ),
                                         ),
@@ -1830,37 +2260,113 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
                               ),
                               const SizedBox(height: 4),
                               SelectableText(
-                                channel.inAppWebPlayerUrl!,
+                                channel.streamUrl,
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: Colors.white70,
                                   fontFamily: 'monospace',
                                 ),
                               ),
+                              if (channel.hasDrm) ...[
+                                const SizedBox(height: 8),
+                                Text(
+                                  'DRM Scheme: ${channel.drmType?.toUpperCase() ?? "WIDEVINE"}',
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Color(0xFF06B6D4),
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                                if (channel.drmLicenseUrl != null)
+                                  SelectableText(
+                                    'License Server: ${channel.drmLicenseUrl}',
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Colors.white60,
+                                      fontFamily: 'monospace',
+                                    ),
+                                  ),
+                              ],
+                              if (channel.inAppWebPlayerUrl != null) ...[
+                                const SizedBox(height: 8),
+                                Row(
+                                  children: [
+                                    const Text(
+                                      'In-App Player URL:',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                        color: Colors.blueAccent,
+                                      ),
+                                    ),
+                                    const Spacer(),
+                                    InkWell(
+                                      onTap: () {
+                                        Clipboard.setData(
+                                          ClipboardData(
+                                            text: channel.inAppWebPlayerUrl!,
+                                          ),
+                                        );
+                                        TvToast.info(
+                                          context,
+                                          'In-App Player URL copied to clipboard',
+                                        );
+                                      },
+                                      child: const Row(
+                                        children: [
+                                          Icon(
+                                            Icons.copy_rounded,
+                                            size: 12,
+                                            color: Colors.blueAccent,
+                                          ),
+                                          SizedBox(width: 4),
+                                          Text(
+                                            'Copy',
+                                            style: TextStyle(
+                                              fontSize: 11,
+                                              color: Colors.blueAccent,
+                                              fontWeight: FontWeight.bold,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 4),
+                                SelectableText(
+                                  channel.inAppWebPlayerUrl!,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.white70,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ],
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Error Trace:',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.redAccent,
+                                ),
+                              ),
+                              const SizedBox(height: 2),
+                              SelectableText(
+                                _errorMessage ?? 'Unknown playback error',
+                                style: const TextStyle(
+                                  fontSize: 10,
+                                  color: Colors.white60,
+                                  fontFamily: 'monospace',
+                                ),
+                              ),
                             ],
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Error Trace:',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.redAccent,
-                              ),
-                            ),
-                            const SizedBox(height: 2),
-                            SelectableText(
-                              _errorMessage ?? 'Unknown playback error',
-                              style: const TextStyle(
-                                fontSize: 10,
-                                color: Colors.white60,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                          ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
             ),
@@ -1959,7 +2465,7 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
         onError: (err) {
           if (mounted) {
             setState(() {
-              _errorMessage = err;
+              _setErrorMessage(err);
               _isInitializing = false;
               _isBuffering = false;
             });
@@ -2230,5 +2736,69 @@ class _VideoPlayerWidgetState extends State<VideoPlayerWidget> {
     }
 
     return Container(color: TvTheme.background);
+  }
+}
+
+class _BroadcastPatternPainter extends CustomPainter {
+  final bool isDrm;
+  final bool isNoSignal;
+  final Color accentColor;
+
+  const _BroadcastPatternPainter({
+    required this.isDrm,
+    required this.isNoSignal,
+    required this.accentColor,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = accentColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.0;
+
+    final center = Offset(size.width / 2, size.height / 2);
+
+    if (isDrm) {
+      // High-tech matrix grid + concentric rings
+      const step = 44.0;
+      for (double x = 0; x < size.width; x += step) {
+        canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+      }
+      for (double y = 0; y < size.height; y += step) {
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      }
+      for (double r = 60; r < 260; r += 45) {
+        canvas.drawCircle(center, r, paint);
+      }
+    } else if (isNoSignal) {
+      // Concentric broadcast radar waves & crosshairs
+      for (double r = 40; r < 360; r += 50) {
+        canvas.drawCircle(center, r, paint);
+      }
+      canvas.drawLine(
+        Offset(0, center.dy),
+        Offset(size.width, center.dy),
+        paint,
+      );
+      canvas.drawLine(
+        Offset(center.dx, 0),
+        Offset(center.dx, size.height),
+        paint,
+      );
+    } else {
+      // Subtle scanline pattern
+      const step = 20.0;
+      for (double y = 0; y < size.height; y += step) {
+        canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _BroadcastPatternPainter oldDelegate) {
+    return oldDelegate.isDrm != isDrm ||
+        oldDelegate.isNoSignal != isNoSignal ||
+        oldDelegate.accentColor != accentColor;
   }
 }

@@ -104,7 +104,10 @@ class _ShakaPlayerWebState extends State<ShakaPlayerWeb> {
     });
 
     _videoElement = video;
-    ui_web.platformViewRegistry.registerViewFactory(_viewType, (int viewId) => video);
+    ui_web.platformViewRegistry.registerViewFactory(
+      _viewType,
+      (int viewId) => video,
+    );
   }
 
   Future<void> _initShaka() async {
@@ -117,7 +120,9 @@ class _ShakaPlayerWebState extends State<ShakaPlayerWeb> {
       }
 
       if (!shaka.isLoaded) {
-        debugPrint('[ShakaPlayerWeb] shaka library not loaded in window after timeout.');
+        debugPrint(
+          '[ShakaPlayerWeb] shaka library not loaded in window after timeout.',
+        );
         widget.onError?.call('Shaka Player library failed to load');
         return;
       }
@@ -125,7 +130,9 @@ class _ShakaPlayerWebState extends State<ShakaPlayerWeb> {
       shaka.installPolyfills();
 
       if (!shaka.Player.isBrowserSupported()) {
-        debugPrint('[ShakaPlayerWeb] Shaka Player is not supported on this browser.');
+        debugPrint(
+          '[ShakaPlayerWeb] Shaka Player is not supported on this browser.',
+        );
         widget.onError?.call('Shaka Player is not supported on this browser');
         return;
       }
@@ -137,16 +144,14 @@ class _ShakaPlayerWebState extends State<ShakaPlayerWeb> {
       if (widget.drmLicenseUrl != null && widget.drmLicenseUrl!.isNotEmpty) {
         player.configure({
           'drm': {
-            'servers': {
-              'com.widevine.alpha': widget.drmLicenseUrl,
-            },
+            'servers': {'com.widevine.alpha': widget.drmLicenseUrl},
             'advanced': {
               'com.widevine.alpha': {
                 'videoRobustness': 'SW_SECURE_CRYPTO',
                 'audioRobustness': 'SW_SECURE_CRYPTO',
-              }
-            }
-          }
+              },
+            },
+          },
         });
       }
 
@@ -197,7 +202,9 @@ class _ShakaPlayerWebState extends State<ShakaPlayerWeb> {
       }
 
       if (widget.fit != oldWidget.fit) {
-        _videoElement!.style.objectFit = widget.fit == BoxFit.cover ? 'cover' : 'contain';
+        _videoElement!.style.objectFit = widget.fit == BoxFit.cover
+            ? 'cover'
+            : 'contain';
       }
 
       if (widget.isPlaying != oldWidget.isPlaying) {

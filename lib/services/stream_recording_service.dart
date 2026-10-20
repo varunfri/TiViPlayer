@@ -8,7 +8,8 @@ import 'app_platform.dart';
 import '../models/recording_item.dart';
 import 'database_service.dart';
 
-typedef RecordingProgressCallback = void Function(int recordingId, int bytesRecorded);
+typedef RecordingProgressCallback =
+    void Function(int recordingId, int bytesRecorded);
 
 /// Manages and executes live stream and HLS recordings directly to disk.
 class StreamRecordingService {
@@ -20,10 +21,13 @@ class StreamRecordingService {
 
   // Listeners for recording status changes across UI
   final ValueNotifier<int> activeRecordingsCount = ValueNotifier<int>(0);
-  final ValueNotifier<Map<int, int>> activeBytesProgress = ValueNotifier<Map<int, int>>({});
+  final ValueNotifier<Map<int, int>> activeBytesProgress =
+      ValueNotifier<Map<int, int>>({});
 
   bool isRecordingChannel(int channelId) {
-    return _activeJobs.values.any((job) => job.item.channelId == channelId && !job.isStopped);
+    return _activeJobs.values.any(
+      (job) => job.item.channelId == channelId && !job.isStopped,
+    );
   }
 
   RecordingItem? getActiveJobForChannel(int channelId) {
@@ -36,7 +40,8 @@ class StreamRecordingService {
   }
 
   bool isJobActive(int recordingId) {
-    return _activeJobs.containsKey(recordingId) && !_activeJobs[recordingId]!.isStopped;
+    return _activeJobs.containsKey(recordingId) &&
+        !_activeJobs[recordingId]!.isStopped;
   }
 
   /// Resolves the default recording directory
@@ -61,10 +66,19 @@ class StreamRecordingService {
     String filePath = item.filePath;
     if (filePath.isEmpty) {
       final recDir = await getRecordingsDirectory();
-      final sanitizedChannel = item.channelName.replaceAll(RegExp(r'[\\/:*?"<>| ]+'), '_');
-      final sanitizedTitle = item.programTitle.replaceAll(RegExp(r'[\\/:*?"<>| ]+'), '_');
+      final sanitizedChannel = item.channelName.replaceAll(
+        RegExp(r'[\\/:*?"<>| ]+'),
+        '_',
+      );
+      final sanitizedTitle = item.programTitle.replaceAll(
+        RegExp(r'[\\/:*?"<>| ]+'),
+        '_',
+      );
       final ts = DateTime.now().millisecondsSinceEpoch;
-      filePath = p.join(recDir.path, '${sanitizedChannel}_${sanitizedTitle}_$ts.ts');
+      filePath = p.join(
+        recDir.path,
+        '${sanitizedChannel}_${sanitizedTitle}_$ts.ts',
+      );
     }
 
     if (recordingId == 0) {
@@ -76,7 +90,10 @@ class StreamRecordingService {
       recordingId = await _db.insertRecording(currentItem);
       currentItem = currentItem.copyWith(id: recordingId);
     } else {
-      currentItem = currentItem.copyWith(filePath: filePath, status: 'recording');
+      currentItem = currentItem.copyWith(
+        filePath: filePath,
+        status: 'recording',
+      );
       await _db.updateRecordingStatus(recordingId, 'recording');
     }
 
@@ -125,7 +142,12 @@ class StreamRecordingService {
     _db.updateRecordingProgress(recordingId, bytes);
   }
 
-  Future<void> _handleJobCompletion(int recordingId, int bytes, bool success, String? error) async {
+  Future<void> _handleJobCompletion(
+    int recordingId,
+    int bytes,
+    bool success,
+    String? error,
+  ) async {
     final job = _activeJobs.remove(recordingId);
     activeRecordingsCount.value = _activeJobs.length;
 
@@ -136,8 +158,15 @@ class StreamRecordingService {
     final finalStatus = success ? 'completed' : 'failed';
     final filePath = job?.item.filePath ?? '';
 
-    await _db.updateRecordingFileAndStatus(recordingId, filePath, finalStatus, bytes);
-    debugPrint('[DVR] Recording #$recordingId finished: status=$finalStatus, bytes=$bytes, err=$error');
+    await _db.updateRecordingFileAndStatus(
+      recordingId,
+      filePath,
+      finalStatus,
+      bytes,
+    );
+    debugPrint(
+      '[DVR] Recording #$recordingId finished: status=$finalStatus, bytes=$bytes, err=$error',
+    );
   }
 
   /// Cancels all active jobs (e.g., when app terminates)
@@ -167,7 +196,8 @@ class _ActiveRecordingJob {
   final Set<String> _downloadedSegments = {};
   int _lastProgressSaveBytes = 0;
 
-  static const String _userAgent = 'TiviMate/5.1.0 (Android TV; Linux; OKHttp/5.4.0)';
+  static const String _userAgent =
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
 
   _ActiveRecordingJob({
     required this.item,
@@ -204,7 +234,9 @@ class _ActiveRecordingJob {
     // First fetch head/initial chunk to see if it's M3U8 or progressive MPEG-TS
     final initialResp = await _client!.get(uri, headers: headers);
     if (initialResp.statusCode != 200) {
-      throw Exception('Server returned HTTP ${initialResp.statusCode}: ${initialResp.reasonPhrase}');
+      throw Exception(
+        'Server returned HTTP ${initialResp.statusCode}: ${initialResp.reasonPhrase}',
+      );
     }
 
     final body = initialResp.body;
@@ -214,7 +246,9 @@ class _ActiveRecordingJob {
       await _startHlsCapture(uri, body);
     } else {
       // It is a direct stream (MPEG-TS, progressive video, etc.)
-      debugPrint('[DVR] Detected direct progressive stream. Starting streaming capture...');
+      debugPrint(
+        '[DVR] Detected direct progressive stream. Starting streaming capture...',
+      );
       // Write already fetched initial bytes
       _fileSink?.add(initialResp.bodyBytes);
       _bytesRecorded += initialResp.bodyBytes.length;
@@ -226,13 +260,18 @@ class _ActiveRecordingJob {
   }
 
   /// Direct progressive MPEG-TS / HTTP stream capture
-  Future<void> _startDirectStreamCapture(Uri uri, Map<String, String> headers) async {
+  Future<void> _startDirectStreamCapture(
+    Uri uri,
+    Map<String, String> headers,
+  ) async {
     try {
       final request = http.Request('GET', uri)..headers.addAll(headers);
       final streamedResponse = await _client!.send(request);
 
       if (streamedResponse.statusCode != 200) {
-        throw Exception('Stream request failed with status: ${streamedResponse.statusCode}');
+        throw Exception(
+          'Stream request failed with status: ${streamedResponse.statusCode}',
+        );
       }
 
       await for (final chunk in streamedResponse.stream) {
@@ -262,10 +301,15 @@ class _ActiveRecordingJob {
 
     // Check if initial content is a Master Playlist
     if (initialContent.contains('#EXT-X-STREAM-INF')) {
-      final resolvedMediaUri = _resolveMasterPlaylist(initialUri, initialContent);
+      final resolvedMediaUri = _resolveMasterPlaylist(
+        initialUri,
+        initialContent,
+      );
       if (resolvedMediaUri != null) {
         mediaPlaylistUri = resolvedMediaUri;
-        debugPrint('[DVR] Resolved media playlist from master: $mediaPlaylistUri');
+        debugPrint(
+          '[DVR] Resolved media playlist from master: $mediaPlaylistUri',
+        );
       }
     }
 
@@ -292,7 +336,9 @@ class _ActiveRecordingJob {
       if (line.startsWith('#EXT-X-STREAM-INF:')) {
         // Extract BANDWIDTH attribute
         final bwMatch = RegExp(r'BANDWIDTH=(\d+)').firstMatch(line);
-        final bandwidth = bwMatch != null ? int.tryParse(bwMatch.group(1) ?? '0') ?? 0 : 0;
+        final bandwidth = bwMatch != null
+            ? int.tryParse(bwMatch.group(1) ?? '0') ?? 0
+            : 0;
 
         // Next line contains the variant URI
         if (i + 1 < lines.length) {
@@ -319,14 +365,13 @@ class _ActiveRecordingJob {
     try {
       final resp = await _client!.get(
         playlistUri,
-        headers: {
-          'User-Agent': _userAgent,
-          'Accept': '*/*',
-        },
+        headers: {'User-Agent': _userAgent, 'Accept': '*/*'},
       );
 
       if (resp.statusCode != 200) {
-        debugPrint('[DVR] Warning: HLS playlist poll returned status ${resp.statusCode}');
+        debugPrint(
+          '[DVR] Warning: HLS playlist poll returned status ${resp.statusCode}',
+        );
         return;
       }
 
@@ -362,10 +407,7 @@ class _ActiveRecordingJob {
 
           final segResp = await _client!.get(
             segUri,
-            headers: {
-              'User-Agent': _userAgent,
-              'Accept': '*/*',
-            },
+            headers: {'User-Agent': _userAgent, 'Accept': '*/*'},
           );
 
           if (segResp.statusCode == 200 && !_isStopped) {

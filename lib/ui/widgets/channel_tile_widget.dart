@@ -161,7 +161,9 @@ class _ChannelTileWidgetState extends State<ChannelTileWidget> {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: hasFocus ? Colors.white : Colors.white.withValues(alpha: 0.9),
+                          color: hasFocus
+                              ? Colors.white
+                              : Colors.white.withValues(alpha: 0.9),
                           fontSize: 12,
                           fontWeight: FontWeight.w500,
                         ),
@@ -172,8 +174,12 @@ class _ChannelTileWidgetState extends State<ChannelTileWidget> {
                       Builder(
                         builder: (context) {
                           final prog = widget.currentProgram!;
-                          final startStr = DateFormat('h:mm a').format(prog.startTime);
-                          final endStr = DateFormat('h:mm a').format(prog.endTime);
+                          final startStr = DateFormat(
+                            'h:mm a',
+                          ).format(prog.startTime);
+                          final endStr = DateFormat(
+                            'h:mm a',
+                          ).format(prog.endTime);
                           final remaining = prog.remainingMinutes;
                           final timingText = remaining > 0
                               ? '$startStr - $endStr • ${remaining}m left'
@@ -183,7 +189,9 @@ class _ChannelTileWidgetState extends State<ChannelTileWidget> {
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              color: hasFocus ? TvTheme.primaryAccent : TvTheme.textMuted,
+                              color: hasFocus
+                                  ? TvTheme.primaryAccent
+                                  : TvTheme.textMuted,
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
                             ),

@@ -98,7 +98,8 @@ class _TvToastWidget extends StatefulWidget {
   State<_TvToastWidget> createState() => _TvToastWidgetState();
 }
 
-class _TvToastWidgetState extends State<_TvToastWidget> with SingleTickerProviderStateMixin {
+class _TvToastWidgetState extends State<_TvToastWidget>
+    with SingleTickerProviderStateMixin {
   late final AnimationController _controller;
   late final Animation<double> _fadeAnimation;
   late final Animation<Offset> _slideAnimation;
@@ -111,7 +112,10 @@ class _TvToastWidgetState extends State<_TvToastWidget> with SingleTickerProvide
       duration: const Duration(milliseconds: 250),
     );
 
-    _fadeAnimation = CurvedAnimation(parent: _controller, curve: Curves.easeOut);
+    _fadeAnimation = CurvedAnimation(
+      parent: _controller,
+      curve: Curves.easeOut,
+    );
     _slideAnimation = Tween<Offset>(
       begin: const Offset(0.2, -0.2),
       end: Offset.zero,
@@ -147,7 +151,10 @@ class _TvToastWidgetState extends State<_TvToastWidget> with SingleTickerProvide
               borderRadius: BorderRadius.circular(10),
               child: Container(
                 constraints: const BoxConstraints(maxWidth: 420),
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 12,
+                ),
                 decoration: BoxDecoration(
                   color: const Color(0xFF131620).withValues(alpha: 0.96),
                   borderRadius: BorderRadius.circular(10),

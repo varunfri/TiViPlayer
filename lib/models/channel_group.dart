@@ -25,7 +25,10 @@ class ChannelGroup {
     };
   }
 
-  factory ChannelGroup.fromMap(Map<String, dynamic> map, {int channelCount = 0}) {
+  factory ChannelGroup.fromMap(
+    Map<String, dynamic> map, {
+    int channelCount = 0,
+  }) {
     return ChannelGroup(
       id: map['id'] as int?,
       playlistId: map['playlist_id'] as int,

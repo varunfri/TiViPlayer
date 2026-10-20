@@ -165,19 +165,31 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                             segments: const [
                               ButtonSegment(
                                 value: 'all',
-                                label: Text('All', style: TextStyle(fontSize: 11)),
+                                label: Text(
+                                  'All',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                               ),
                               ButtonSegment(
                                 value: 'recording',
-                                label: Text('Active (REC)', style: TextStyle(fontSize: 11)),
+                                label: Text(
+                                  'Active (REC)',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                               ),
                               ButtonSegment(
                                 value: 'completed',
-                                label: Text('Completed', style: TextStyle(fontSize: 11)),
+                                label: Text(
+                                  'Completed',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                               ),
                               ButtonSegment(
                                 value: 'scheduled',
-                                label: Text('Scheduled', style: TextStyle(fontSize: 11)),
+                                label: Text(
+                                  'Scheduled',
+                                  style: TextStyle(fontSize: 11),
+                                ),
                               ),
                             ],
                             selected: {_selectedTab},
@@ -185,7 +197,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                               setState(() => _selectedTab = val.first);
                             },
                             style: ButtonStyle(
-                              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                              backgroundColor: WidgetStateProperty.resolveWith((
+                                states,
+                              ) {
                                 if (states.contains(WidgetState.selected)) {
                                   return TvTheme.primary;
                                 }
@@ -255,7 +269,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                             setState(() => _selectedTab = val.first);
                           },
                           style: ButtonStyle(
-                            backgroundColor: WidgetStateProperty.resolveWith((states) {
+                            backgroundColor: WidgetStateProperty.resolveWith((
+                              states,
+                            ) {
                               if (states.contains(WidgetState.selected)) {
                                 return TvTheme.primary;
                               }
@@ -322,7 +338,8 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                   : ListView.separated(
                       padding: EdgeInsets.all(isMobile ? 12 : 20),
                       itemCount: _filteredRecordings.length,
-                      separatorBuilder: (_, _) => SizedBox(height: isMobile ? 8 : 12),
+                      separatorBuilder: (_, _) =>
+                          SizedBox(height: isMobile ? 8 : 12),
                       itemBuilder: (context, index) {
                         final item = _filteredRecordings[index];
                         return _buildRecordingCard(
@@ -416,16 +433,11 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
         Row(
           children: [
             Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 7,
-                vertical: 2,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
               decoration: BoxDecoration(
                 color: statusColor.withValues(alpha: 0.15),
                 borderRadius: BorderRadius.circular(4),
-                border: Border.all(
-                  color: statusColor.withValues(alpha: 0.6),
-                ),
+                border: Border.all(color: statusColor.withValues(alpha: 0.6)),
               ),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -478,10 +490,7 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
                 '${timeFormat.format(item.startTime)} - ${DateFormat('h:mm a').format(item.endTime)} (${item.duration.inMinutes}m)',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 11,
-                  color: Colors.white70,
-                ),
+                style: const TextStyle(fontSize: 11, color: Colors.white70),
               ),
             ),
             if (bytes > 0) ...[
@@ -511,7 +520,9 @@ class _RecordingsScreenState extends State<RecordingsScreen> {
 
     final actionsWidget = Row(
       mainAxisSize: isMobile ? MainAxisSize.max : MainAxisSize.min,
-      mainAxisAlignment: isMobile ? MainAxisAlignment.end : MainAxisAlignment.start,
+      mainAxisAlignment: isMobile
+          ? MainAxisAlignment.end
+          : MainAxisAlignment.start,
       children: [
         if (item.isCompleted) ...[
           ElevatedButton.icon(

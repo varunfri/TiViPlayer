@@ -48,17 +48,14 @@ class DesktopPipService {
             _savedPosition!.dx + (_savedSize?.width ?? 0) / 2,
             _savedPosition!.dy + (_savedSize?.height ?? 0) / 2,
           );
-          activeDisplay = displays.firstWhere(
-            (d) {
-              final pos = d.visiblePosition ?? const Offset(0, 0);
-              final size = d.visibleSize ?? d.size;
-              return windowCenter.dx >= pos.dx &&
-                  windowCenter.dx <= pos.dx + size.width &&
-                  windowCenter.dy >= pos.dy &&
-                  windowCenter.dy <= pos.dy + size.height;
-            },
-            orElse: () => displays.first,
-          );
+          activeDisplay = displays.firstWhere((d) {
+            final pos = d.visiblePosition ?? const Offset(0, 0);
+            final size = d.visibleSize ?? d.size;
+            return windowCenter.dx >= pos.dx &&
+                windowCenter.dx <= pos.dx + size.width &&
+                windowCenter.dy >= pos.dy &&
+                windowCenter.dy <= pos.dy + size.height;
+          }, orElse: () => displays.first);
         } else {
           activeDisplay = await screenRetriever.getPrimaryDisplay();
         }
@@ -81,7 +78,9 @@ class DesktopPipService {
 
       _isInPip = true;
       isPipNotifier.value = true;
-      debugPrint('[DesktopPipService] Entered Desktop PiP: size=($pipWidth, $pipHeight), pos=($posX, $posY), alwaysOnTop=true');
+      debugPrint(
+        '[DesktopPipService] Entered Desktop PiP: size=($pipWidth, $pipHeight), pos=($posX, $posY), alwaysOnTop=true',
+      );
       return true;
     } catch (e) {
       debugPrint('[DesktopPipService] Error entering desktop PiP: $e');
@@ -112,7 +111,9 @@ class DesktopPipService {
 
       _isInPip = false;
       isPipNotifier.value = false;
-      debugPrint('[DesktopPipService] Exited Desktop PiP and restored normal window frame.');
+      debugPrint(
+        '[DesktopPipService] Exited Desktop PiP and restored normal window frame.',
+      );
       return true;
     } catch (e) {
       debugPrint('[DesktopPipService] Error exiting desktop PiP: $e');

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import '../../models/channel.dart';
 import '../../models/epg_program.dart';
@@ -7,7 +8,7 @@ import '../../ui/theme.dart';
 import '../screens/stream_settings_dialog.dart';
 import 'tv_toast.dart';
 
-class PlayerControlsOsd extends StatelessWidget {
+class PlayerControlsOsd extends StatefulWidget {
   final Channel? channel;
   final EpgProgram? currentProgram;
   final TvStateProvider tvState;
@@ -22,7 +23,290 @@ class PlayerControlsOsd extends StatelessWidget {
   });
 
   @override
+  State<PlayerControlsOsd> createState() => _PlayerControlsOsdState();
+}
+
+class _PlayerControlsOsdState extends State<PlayerControlsOsd> {
+  final FocusNode _scrubberFocusNode = FocusNode();
+  bool _isDragging = false;
+  double? _dragFraction;
+  bool _showRemaining = false;
+
+  @override
+  void dispose() {
+    _scrubberFocusNode.dispose();
+    super.dispose();
+  }
+
+  Widget _buildVodProgressBar({required bool isMobile}) {
+    final tvState = widget.tvState;
+    final duration = tvState.playbackDuration;
+    final position = _isDragging && _dragFraction != null
+        ? Duration(
+            milliseconds: (_dragFraction! * duration.inMilliseconds).round(),
+          )
+        : tvState.playbackPosition;
+    final progress = _isDragging && _dragFraction != null
+        ? _dragFraction!
+        : tvState.playbackProgressFraction;
+    final buffer = tvState.playbackBufferFraction;
+
+    final elapsedStr = TvStateProvider.formatDuration(
+      position,
+      referenceDuration: duration,
+    );
+    final totalStr = TvStateProvider.formatDuration(duration);
+    final remaining = duration - position;
+    final remainingStr =
+        '-${TvStateProvider.formatDuration(remaining.isNegative ? Duration.zero : remaining, referenceDuration: duration)}';
+
+    return Focus(
+      focusNode: _scrubberFocusNode,
+      onKeyEvent: (node, event) {
+        if (event is! KeyDownEvent) return KeyEventResult.ignored;
+        if (event.logicalKey == LogicalKeyboardKey.arrowLeft) {
+          tvState.seekRelative(const Duration(seconds: -10));
+          return KeyEventResult.handled;
+        } else if (event.logicalKey == LogicalKeyboardKey.arrowRight) {
+          tvState.seekRelative(const Duration(seconds: 10));
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Builder(
+        builder: (context) {
+          final isFocused = Focus.of(context).hasFocus;
+          return Container(
+            padding: EdgeInsets.symmetric(
+              horizontal: isMobile ? 6 : 10,
+              vertical: isMobile ? 3 : 5,
+            ),
+            decoration: BoxDecoration(
+              color: isFocused
+                  ? TvTheme.surfaceFocus.withValues(alpha: 0.7)
+                  : Colors.black.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(10),
+              border: isFocused
+                  ? Border.all(color: TvTheme.primaryAccent, width: 2)
+                  : Border.all(color: Colors.white12, width: 1),
+              boxShadow: isFocused
+                  ? [
+                      BoxShadow(
+                        color: TvTheme.primaryAccent.withValues(alpha: 0.4),
+                        blurRadius: 12,
+                        spreadRadius: 2,
+                      ),
+                    ]
+                  : null,
+            ),
+            child: Row(
+              children: [
+                if (!isMobile) ...[
+                  IconButton(
+                    tooltip: 'Rewind 10s (Left Arrow / J)',
+                    icon: const Icon(
+                      Icons.replay_10_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    onPressed: () =>
+                        tvState.seekRelative(const Duration(seconds: -10)),
+                  ),
+                  IconButton(
+                    tooltip: tvState.isPlaying
+                        ? 'Pause (Space / K)'
+                        : 'Play (Space / K)',
+                    icon: Icon(
+                      tvState.isPlaying
+                          ? Icons.pause_circle_filled_rounded
+                          : Icons.play_circle_fill_rounded,
+                      color: tvState.isPlaying
+                          ? TvTheme.primaryAccent
+                          : Colors.greenAccent,
+                      size: 28,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    onPressed: () => tvState.togglePlayPause(),
+                  ),
+                  IconButton(
+                    tooltip: 'Forward 10s (Right Arrow / L)',
+                    icon: const Icon(
+                      Icons.forward_10_rounded,
+                      color: Colors.white,
+                      size: 24,
+                    ),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 36,
+                      minHeight: 36,
+                    ),
+                    onPressed: () =>
+                        tvState.seekRelative(const Duration(seconds: 10)),
+                  ),
+                  InkWell(
+                    borderRadius: BorderRadius.circular(6),
+                    onTap: () {
+                      final speeds = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0];
+                      final currentIdx = speeds.indexOf(tvState.playbackRate);
+                      final nextSpeed =
+                          speeds[(currentIdx + 1) % speeds.length];
+                      tvState.setPlaybackRate(nextSpeed);
+                      TvToast.info(context, 'Speed: ${nextSpeed}x');
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 7,
+                        vertical: 3,
+                      ),
+                      margin: const EdgeInsets.symmetric(horizontal: 4),
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(6),
+                        border: Border.all(color: Colors.white24, width: 1),
+                      ),
+                      child: Text(
+                        '${tvState.playbackRate}x',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                ],
+
+                // Elapsed time badge
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 7,
+                    vertical: 3,
+                  ),
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    elapsedStr,
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: isMobile ? 11 : 13,
+                      fontWeight: FontWeight.bold,
+                      letterSpacing: 0.5,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Interactive Scrubber Slider
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: isFocused ? 6.0 : (isMobile ? 4.0 : 5.0),
+                      activeTrackColor: TvTheme.primaryAccent,
+                      inactiveTrackColor: Colors.white.withValues(alpha: 0.22),
+                      secondaryActiveTrackColor: Colors.white.withValues(
+                        alpha: 0.42,
+                      ),
+                      thumbColor: Colors.white,
+                      thumbShape: RoundSliderThumbShape(
+                        enabledThumbRadius: isFocused
+                            ? 9.0
+                            : (isMobile ? 6.0 : 7.5),
+                      ),
+                      overlayColor: TvTheme.primaryAccent.withValues(
+                        alpha: 0.25,
+                      ),
+                      overlayShape: const RoundSliderOverlayShape(
+                        overlayRadius: 16.0,
+                      ),
+                    ),
+                    child: Slider(
+                      value: progress.clamp(0.0, 1.0),
+                      secondaryTrackValue: buffer > 0.0
+                          ? buffer.clamp(0.0, 1.0)
+                          : null,
+                      min: 0.0,
+                      max: 1.0,
+                      onChanged: (val) {
+                        setState(() {
+                          _isDragging = true;
+                          _dragFraction = val;
+                        });
+                      },
+                      onChangeEnd: (val) {
+                        setState(() {
+                          _isDragging = false;
+                          _dragFraction = null;
+                        });
+                        if (duration > Duration.zero) {
+                          final targetMs = (val * duration.inMilliseconds)
+                              .round();
+                          tvState.seekTo(Duration(milliseconds: targetMs));
+                        }
+                      },
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+
+                // Total or remaining duration
+                InkWell(
+                  borderRadius: BorderRadius.circular(4),
+                  onTap: () {
+                    setState(() {
+                      _showRemaining = !_showRemaining;
+                    });
+                  },
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 7,
+                      vertical: 3,
+                    ),
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.12),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Text(
+                      _showRemaining ? remainingStr : totalStr,
+                      style: TextStyle(
+                        color: _showRemaining
+                            ? TvTheme.primaryAccent
+                            : Colors.white70,
+                        fontSize: isMobile ? 11 : 13,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.5,
+                        fontFeatures: const [FontFeature.tabularFigures()],
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final channel = widget.channel;
+    final currentProgram = widget.currentProgram;
+    final tvState = widget.tvState;
+    final onOpenGuide = widget.onOpenGuide;
+
     if (channel == null) return const SizedBox.shrink();
 
     final isMobile = MediaQuery.sizeOf(context).width < 700;
@@ -58,9 +342,9 @@ class PlayerControlsOsd extends StatelessWidget {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     clipBehavior: Clip.antiAlias,
-                    child: channel!.logoUrl != null
+                    child: channel.logoUrl != null
                         ? Image.network(
-                            channel!.logoUrl!,
+                            channel.logoUrl!,
                             fit: BoxFit.contain,
                             errorBuilder: (_, _, _) => const Icon(
                               Icons.live_tv_rounded,
@@ -83,7 +367,7 @@ class PlayerControlsOsd extends StatelessWidget {
                           children: [
                             Flexible(
                               child: Text(
-                                '#${channel!.channelNumber}  ${channel!.name}',
+                                '#${channel.channelNumber}  ${channel.name}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -96,16 +380,26 @@ class PlayerControlsOsd extends StatelessWidget {
                             const SizedBox(width: 6),
                             Container(
                               padding: const EdgeInsets.symmetric(
-                                horizontal: 5,
-                                vertical: 1,
+                                horizontal: 6,
+                                vertical: 2,
                               ),
                               decoration: BoxDecoration(
-                                color: Colors.redAccent,
+                                gradient: tvState.isVodStream
+                                    ? const LinearGradient(
+                                        colors: [
+                                          Color(0xFF8B5CF6),
+                                          Color(0xFF06B6D4),
+                                        ],
+                                      )
+                                    : null,
+                                color: tvState.isVodStream
+                                    ? null
+                                    : Colors.redAccent,
                                 borderRadius: BorderRadius.circular(4),
                               ),
-                              child: const Text(
-                                'LIVE',
-                                style: TextStyle(
+                              child: Text(
+                                tvState.isVodStream ? 'VOD' : 'LIVE',
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontSize: 8,
                                   fontWeight: FontWeight.bold,
@@ -211,12 +505,15 @@ class PlayerControlsOsd extends StatelessWidget {
                 ],
               ),
 
-              if (currentProgram != null) ...[
+              if (tvState.isVodStream) ...[
+                const SizedBox(height: 8),
+                _buildVodProgressBar(isMobile: true),
+              ] else if (currentProgram != null) ...[
                 const SizedBox(height: 8),
                 ClipRRect(
                   borderRadius: BorderRadius.circular(2),
                   child: LinearProgressIndicator(
-                    value: currentProgram!.progress,
+                    value: currentProgram.progress,
                     backgroundColor: Colors.white24,
                     color: TvTheme.primary,
                     minHeight: 3,
@@ -230,37 +527,73 @@ class PlayerControlsOsd extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  IconButton(
-                    icon: const Icon(
-                      Icons.skip_previous_rounded,
-                      color: Colors.white,
-                      size: 26,
+                  if (tvState.isVodStream) ...[
+                    IconButton(
+                      icon: const Icon(
+                        Icons.replay_10_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      tooltip: 'Rewind 10s',
+                      onPressed: () =>
+                          tvState.seekRelative(const Duration(seconds: -10)),
                     ),
-                    tooltip: 'Previous Channel',
-                    onPressed: () => tvState.playPreviousChannel(),
-                  ),
-                  IconButton(
-                    icon: Icon(
-                      tvState.isPlaying
-                          ? Icons.stop_circle_rounded
-                          : Icons.play_circle_fill_rounded,
-                      color: tvState.isPlaying
-                          ? Colors.redAccent
-                          : Colors.greenAccent,
-                      size: 34,
+                    IconButton(
+                      icon: Icon(
+                        tvState.isPlaying
+                            ? Icons.pause_circle_filled_rounded
+                            : Icons.play_circle_fill_rounded,
+                        color: tvState.isPlaying
+                            ? TvTheme.primaryAccent
+                            : Colors.greenAccent,
+                        size: 34,
+                      ),
+                      tooltip: tvState.isPlaying ? 'Pause' : 'Play',
+                      onPressed: () => tvState.togglePlayPause(),
                     ),
-                    tooltip: tvState.isPlaying ? 'Stop' : 'Play',
-                    onPressed: () => tvState.togglePlayPause(),
-                  ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.skip_next_rounded,
-                      color: Colors.white,
-                      size: 26,
+                    IconButton(
+                      icon: const Icon(
+                        Icons.forward_10_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      tooltip: 'Forward 10s',
+                      onPressed: () =>
+                          tvState.seekRelative(const Duration(seconds: 10)),
                     ),
-                    tooltip: 'Next Channel',
-                    onPressed: () => tvState.playNextChannel(),
-                  ),
+                  ] else ...[
+                    IconButton(
+                      icon: const Icon(
+                        Icons.skip_previous_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      tooltip: 'Previous Channel',
+                      onPressed: () => tvState.playPreviousChannel(),
+                    ),
+                    IconButton(
+                      icon: Icon(
+                        tvState.isPlaying
+                            ? Icons.stop_circle_rounded
+                            : Icons.play_circle_fill_rounded,
+                        color: tvState.isPlaying
+                            ? Colors.redAccent
+                            : Colors.greenAccent,
+                        size: 34,
+                      ),
+                      tooltip: tvState.isPlaying ? 'Stop' : 'Play',
+                      onPressed: () => tvState.togglePlayPause(),
+                    ),
+                    IconButton(
+                      icon: const Icon(
+                        Icons.skip_next_rounded,
+                        color: Colors.white,
+                        size: 26,
+                      ),
+                      tooltip: 'Next Channel',
+                      onPressed: () => tvState.playNextChannel(),
+                    ),
+                  ],
                   IconButton(
                     icon: const Icon(
                       Icons.picture_in_picture,
@@ -345,9 +678,9 @@ class PlayerControlsOsd extends StatelessWidget {
                   borderRadius: BorderRadius.circular(8),
                 ),
                 clipBehavior: Clip.antiAlias,
-                child: channel!.logoUrl != null
+                child: channel.logoUrl != null
                     ? Image.network(
-                        channel!.logoUrl!,
+                        channel.logoUrl!,
                         fit: BoxFit.contain,
                         errorBuilder: (_, _, _) => const Icon(
                           Icons.live_tv_rounded,
@@ -370,34 +703,60 @@ class PlayerControlsOsd extends StatelessWidget {
                   children: [
                     Row(
                       children: [
-                        Text(
-                          '#${channel!.channelNumber}  ${channel!.name}',
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
+                        Flexible(
+                          child: Text(
+                            '#${channel.channelNumber}  ${channel.name}',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.bold,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                         const SizedBox(width: 10),
                         Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
+                            horizontal: 7,
                             vertical: 2,
                           ),
                           decoration: BoxDecoration(
-                            color: Colors.redAccent,
+                            gradient: tvState.isVodStream
+                                ? const LinearGradient(
+                                    colors: [
+                                      Color(0xFF8B5CF6),
+                                      Color(0xFF06B6D4),
+                                    ],
+                                  )
+                                : null,
+                            color: tvState.isVodStream
+                                ? null
+                                : Colors.redAccent,
                             borderRadius: BorderRadius.circular(4),
+                            boxShadow: tvState.isVodStream
+                                ? [
+                                    BoxShadow(
+                                      color: const Color(
+                                        0xFF8B5CF6,
+                                      ).withValues(alpha: 0.4),
+                                      blurRadius: 6,
+                                      spreadRadius: 1,
+                                    ),
+                                  ]
+                                : null,
                           ),
-                          child: const Text(
-                            'LIVE',
-                            style: TextStyle(
+                          child: Text(
+                            tvState.isVodStream ? 'VOD' : 'LIVE',
+                            style: const TextStyle(
                               color: Colors.white,
                               fontSize: 9,
                               fontWeight: FontWeight.bold,
+                              letterSpacing: 0.5,
                             ),
                           ),
                         ),
-                        if (channel!.hasDrm) ...[
+                        if (channel.hasDrm) ...[
                           const SizedBox(width: 6),
                           Container(
                             padding: const EdgeInsets.symmetric(
@@ -412,7 +771,7 @@ class PlayerControlsOsd extends StatelessWidget {
                               ),
                             ),
                             child: Text(
-                              channel!.drmType?.toUpperCase() ?? 'DRM',
+                              channel.drmType?.toUpperCase() ?? 'DRM',
                               style: const TextStyle(
                                 color: Colors.amber,
                                 fontSize: 9,
@@ -421,52 +780,6 @@ class PlayerControlsOsd extends StatelessWidget {
                             ),
                           ),
                         ],
-                        const SizedBox(width: 6),
-                        InkWell(
-                          borderRadius: BorderRadius.circular(4),
-                          onTap: () {
-                            showDialog(
-                              context: context,
-                              builder: (_) => const StreamSettingsDialog(
-                                initialTabIndex: 0,
-                              ),
-                            );
-                          },
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 6,
-                              vertical: 2,
-                            ),
-                            decoration: BoxDecoration(
-                              color: TvTheme.primary.withValues(alpha: 0.25),
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(
-                                color: TvTheme.primaryAccent.withValues(
-                                  alpha: 0.6,
-                                ),
-                              ),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(
-                                  Icons.high_quality_rounded,
-                                  color: TvTheme.primaryAccent,
-                                  size: 13,
-                                ),
-                                const SizedBox(width: 3),
-                                Text(
-                                  _getVideoQualityBadge(tvState.activePlayer),
-                                  style: const TextStyle(
-                                    color: TvTheme.primaryAccent,
-                                    fontSize: 9,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
                       ],
                     ),
                     const SizedBox(height: 4),
@@ -667,12 +980,15 @@ class PlayerControlsOsd extends StatelessWidget {
             ],
           ),
 
-          if (currentProgram != null) ...[
+          if (tvState.isVodStream) ...[
+            const SizedBox(height: 12),
+            _buildVodProgressBar(isMobile: false),
+          ] else if (currentProgram != null) ...[
             const SizedBox(height: 12),
             ClipRRect(
               borderRadius: BorderRadius.circular(2),
               child: LinearProgressIndicator(
-                value: currentProgram!.progress,
+                value: currentProgram.progress,
                 backgroundColor: Colors.white24,
                 color: TvTheme.primary,
                 minHeight: 4,
@@ -685,6 +1001,9 @@ class PlayerControlsOsd extends StatelessWidget {
   }
 
   void _showRecordDialog(BuildContext context, TvStateProvider tvState) {
+    final channel = widget.channel;
+    final currentProgram = widget.currentProgram;
+    if (channel == null) return;
     final isRecording = tvState.isCurrentChannelRecording;
     final bytes = tvState.currentChannelBytesRecorded;
     final mb = (bytes / (1024 * 1024)).toStringAsFixed(1);
@@ -742,7 +1061,7 @@ class PlayerControlsOsd extends StatelessWidget {
                           ),
                           const SizedBox(height: 2),
                           Text(
-                            channel!.name,
+                            channel.name,
                             style: const TextStyle(
                               fontSize: 13,
                               color: TvTheme.textMuted,
@@ -839,7 +1158,7 @@ class PlayerControlsOsd extends StatelessWidget {
                         ),
                       ),
                       subtitle: Text(
-                        '${currentProgram!.title} (${currentProgram!.remainingMinutes}m remaining)',
+                        '${currentProgram.title} (${currentProgram.remainingMinutes}m remaining)',
                         style: const TextStyle(
                           color: TvTheme.textMuted,
                           fontSize: 12,
@@ -848,7 +1167,7 @@ class PlayerControlsOsd extends StatelessWidget {
                       onTap: () {
                         tvState.startInstantRecording(
                           duration: Duration(
-                            minutes: currentProgram!.remainingMinutes.clamp(
+                            minutes: currentProgram.remainingMinutes.clamp(
                               5,
                               360,
                             ),
@@ -857,7 +1176,7 @@ class PlayerControlsOsd extends StatelessWidget {
                         Navigator.of(ctx).pop();
                         TvToast.success(
                           context,
-                          'Started recording "${currentProgram!.title}"',
+                          'Started recording "${currentProgram.title}"',
                         );
                       },
                     ),

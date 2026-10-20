@@ -24,11 +24,14 @@ class XtreamService {
     return url;
   }
 
-  String get epgUrl => '$_cleanServerUrl/xmltv.php?username=$username&password=$password';
+  String get epgUrl =>
+      '$_cleanServerUrl/xmltv.php?username=$username&password=$password';
 
   Future<bool> authenticate() async {
     try {
-      final uri = Uri.parse('$_cleanServerUrl/player_api.php?username=$username&password=$password');
+      final uri = Uri.parse(
+        '$_cleanServerUrl/player_api.php?username=$username&password=$password',
+      );
       final res = await http.get(uri).timeout(const Duration(seconds: 15));
       if (res.statusCode == 200) {
         final data = json.decode(res.body);
@@ -45,7 +48,9 @@ class XtreamService {
 
   Future<Map<String, List<Channel>>> fetchLiveStreams() async {
     // 1. Fetch Categories
-    final catUri = Uri.parse('$_cleanServerUrl/player_api.php?username=$username&password=$password&action=get_live_categories');
+    final catUri = Uri.parse(
+      '$_cleanServerUrl/player_api.php?username=$username&password=$password&action=get_live_categories',
+    );
     final catRes = await http.get(catUri).timeout(const Duration(seconds: 20));
     final Map<String, String> categoryNames = {};
 
@@ -63,8 +68,12 @@ class XtreamService {
     }
 
     // 2. Fetch Streams
-    final streamUri = Uri.parse('$_cleanServerUrl/player_api.php?username=$username&password=$password&action=get_live_streams');
-    final streamRes = await http.get(streamUri).timeout(const Duration(seconds: 30));
+    final streamUri = Uri.parse(
+      '$_cleanServerUrl/player_api.php?username=$username&password=$password&action=get_live_streams',
+    );
+    final streamRes = await http
+        .get(streamUri)
+        .timeout(const Duration(seconds: 30));
     final Map<String, List<Channel>> groupedChannels = {};
 
     if (streamRes.statusCode == 200) {
@@ -79,7 +88,8 @@ class XtreamService {
           final tvgId = item['epg_channel_id']?.toString();
           final groupName = categoryNames[catId] ?? 'All Channels';
 
-          final streamUrl = '$_cleanServerUrl/live/$username/$password/$streamId.ts';
+          final streamUrl =
+              '$_cleanServerUrl/live/$username/$password/$streamId.ts';
 
           final channel = Channel(
             playlistId: 1,

@@ -9,10 +9,7 @@ import '../../ui/theme.dart';
 class StreamSettingsDialog extends StatefulWidget {
   final int initialTabIndex;
 
-  const StreamSettingsDialog({
-    super.key,
-    this.initialTabIndex = 0,
-  });
+  const StreamSettingsDialog({super.key, this.initialTabIndex = 0});
 
   @override
   State<StreamSettingsDialog> createState() => _StreamSettingsDialogState();
@@ -129,13 +126,19 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                           tvState.activePlayingChannel?.name ?? 'Live Stream',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 12, color: TvTheme.textMuted),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: TvTheme.textMuted,
+                          ),
                         ),
                       ],
                     ),
                   ),
                   IconButton(
-                    icon: const Icon(Icons.close_rounded, color: Colors.white70),
+                    icon: const Icon(
+                      Icons.close_rounded,
+                      color: Colors.white70,
+                    ),
                     tooltip: 'Close (ESC)',
                     onPressed: () => Navigator.of(context).pop(),
                   ),
@@ -152,11 +155,23 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                 scrollDirection: Axis.horizontal,
                 child: Row(
                   children: [
-                    _buildTabButton(0, 'Video Quality', Icons.high_quality_rounded),
+                    _buildTabButton(
+                      0,
+                      'Video Quality',
+                      Icons.high_quality_rounded,
+                    ),
                     const SizedBox(width: 8),
-                    _buildTabButton(1, 'Aspect Ratio', Icons.aspect_ratio_rounded),
+                    _buildTabButton(
+                      1,
+                      'Aspect Ratio',
+                      Icons.aspect_ratio_rounded,
+                    ),
                     const SizedBox(width: 8),
-                    _buildTabButton(2, 'Audio Tracks', Icons.audiotrack_rounded),
+                    _buildTabButton(
+                      2,
+                      'Audio Tracks',
+                      Icons.audiotrack_rounded,
+                    ),
                     const SizedBox(width: 8),
                     _buildTabButton(3, 'Subtitles', Icons.subtitles_rounded),
                     const SizedBox(width: 8),
@@ -261,7 +276,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
     final bool isAuto = currentTrack.id == 'auto';
 
     // Filter available manual renditions (excluding 'no' and 'auto')
-    final variants = allTracks.where((t) => t.id != 'no' && t.id != 'auto').toList();
+    final variants = allTracks
+        .where((t) => t.id != 'no' && t.id != 'auto')
+        .toList();
     variants.sort((a, b) => (b.h ?? 0).compareTo(a.h ?? 0));
 
     // Determine badge and color
@@ -312,7 +329,10 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
               Row(
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
                       color: badgeColor,
                       borderRadius: BorderRadius.circular(6),
@@ -326,7 +346,11 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        const Icon(Icons.videocam_rounded, color: Colors.white, size: 14),
+                        const Icon(
+                          Icons.videocam_rounded,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                         const SizedBox(width: 5),
                         Text(
                           badgeText,
@@ -342,7 +366,10 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                   ),
                   const SizedBox(width: 8),
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 3,
+                    ),
                     decoration: BoxDecoration(
                       color: isAuto
                           ? Colors.greenAccent.withValues(alpha: 0.15)
@@ -366,7 +393,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                   ),
                   const Spacer(),
                   Text(
-                    width != null && height != null ? '$width × $height' : 'Demuxing Stream...',
+                    width != null && height != null
+                        ? '$width × $height'
+                        : 'Demuxing Stream...',
                     style: const TextStyle(
                       fontSize: 13,
                       fontWeight: FontWeight.bold,
@@ -383,7 +412,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                   _buildSpecChip(
                     Icons.aspect_ratio_rounded,
                     'Resolution',
-                    width != null && height != null ? '$width × $height' : 'Demuxing',
+                    width != null && height != null
+                        ? '$width × $height'
+                        : 'Demuxing',
                   ),
                   if (fps != null && fps > 0)
                     _buildSpecChip(
@@ -466,14 +497,18 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
             final details = [
               if (t.w != null && t.h != null) '${t.w} × ${t.h}',
               if (t.fps != null && t.fps! > 0) '${t.fps!.round()} fps',
-              if (t.bitrate != null && t.bitrate! > 0) _formatBitrate(t.bitrate!),
-              if (t.codec != null && t.codec!.isNotEmpty) t.codec!.toUpperCase(),
+              if (t.bitrate != null && t.bitrate! > 0)
+                _formatBitrate(t.bitrate!),
+              if (t.codec != null && t.codec!.isNotEmpty)
+                t.codec!.toUpperCase(),
             ].join(' • ');
 
             return _buildQualityOption(
               isSelected: isSelected,
               title: tierName,
-              subtitle: details.isNotEmpty ? details : 'Stream Rendition #${t.id}',
+              subtitle: details.isNotEmpty
+                  ? details
+                  : 'Stream Rendition #${t.id}',
               badge: t.h != null ? '${t.h}p' : 'Track ${t.id}',
               badgeColor: TvTheme.primaryAccent,
               icon: Icons.hd_rounded,
@@ -530,23 +565,44 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
-                              side: const BorderSide(color: TvTheme.borderSubtle),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              side: const BorderSide(
+                                color: TvTheme.borderSubtle,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                             ),
-                            onPressed: () => setState(() => _selectedTabIndex = 1),
-                            icon: const Icon(Icons.aspect_ratio_rounded, size: 16),
-                            label: const Text('Aspect Ratio', style: TextStyle(fontSize: 12)),
+                            onPressed: () =>
+                                setState(() => _selectedTabIndex = 1),
+                            icon: const Icon(
+                              Icons.aspect_ratio_rounded,
+                              size: 16,
+                            ),
+                            label: const Text(
+                              'Aspect Ratio',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                           const SizedBox(width: 8),
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: Colors.white,
-                              side: const BorderSide(color: TvTheme.borderSubtle),
-                              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              side: const BorderSide(
+                                color: TvTheme.borderSubtle,
+                              ),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
                             ),
-                            onPressed: () => setState(() => _selectedTabIndex = 4),
+                            onPressed: () =>
+                                setState(() => _selectedTabIndex = 4),
                             icon: const Icon(Icons.speed_rounded, size: 16),
-                            label: const Text('Buffer Cache', style: TextStyle(fontSize: 12)),
+                            label: const Text(
+                              'Buffer Cache',
+                              style: TextStyle(fontSize: 12),
+                            ),
                           ),
                         ],
                       ),
@@ -674,12 +730,37 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
 
   Widget _buildAspectRatioTab(TvStateProvider tvState) {
     final modes = [
-      {'mode': VideoScaleMode.contain, 'title': 'Contain (Original)', 'desc': 'Preserves native broadcast aspect ratio with black bars if necessary.'},
-      {'mode': VideoScaleMode.cover, 'title': 'Cover / Fill (16:9)', 'desc': 'Stretches and fills entire screen without black borders.'},
-      {'mode': VideoScaleMode.fitWidth, 'title': 'Fit Width', 'desc': 'Fits the video horizontally to the display width.'},
-      {'mode': VideoScaleMode.fitHeight, 'title': 'Fit Height', 'desc': 'Fits the video vertically to the display height.'},
-      {'mode': VideoScaleMode.fourThree, 'title': 'Force 4:3 (Classic TV)', 'desc': 'Forces vintage 4:3 SD broadcast aspect ratio.'},
-      {'mode': VideoScaleMode.sixteenNine, 'title': 'Force 16:9 (Widescreen)', 'desc': 'Forces standard widescreen 16:9 framing.'},
+      {
+        'mode': VideoScaleMode.contain,
+        'title': 'Contain (Original)',
+        'desc':
+            'Preserves native broadcast aspect ratio with black bars if necessary.',
+      },
+      {
+        'mode': VideoScaleMode.cover,
+        'title': 'Cover / Fill (16:9)',
+        'desc': 'Stretches and fills entire screen without black borders.',
+      },
+      {
+        'mode': VideoScaleMode.fitWidth,
+        'title': 'Fit Width',
+        'desc': 'Fits the video horizontally to the display width.',
+      },
+      {
+        'mode': VideoScaleMode.fitHeight,
+        'title': 'Fit Height',
+        'desc': 'Fits the video vertically to the display height.',
+      },
+      {
+        'mode': VideoScaleMode.fourThree,
+        'title': 'Force 4:3 (Classic TV)',
+        'desc': 'Forces vintage 4:3 SD broadcast aspect ratio.',
+      },
+      {
+        'mode': VideoScaleMode.sixteenNine,
+        'title': 'Force 16:9 (Widescreen)',
+        'desc': 'Forces standard widescreen 16:9 framing.',
+      },
     ];
 
     return ListView(
@@ -714,7 +795,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
               color: Colors.transparent,
               child: ListTile(
                 leading: Icon(
-                  isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                  isSelected
+                      ? Icons.radio_button_checked
+                      : Icons.radio_button_off,
                   color: isSelected ? TvTheme.primaryAccent : Colors.white54,
                 ),
                 title: Text(
@@ -727,7 +810,10 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                 ),
                 subtitle: Text(
                   item['desc'] as String,
-                  style: const TextStyle(fontSize: 12, color: TvTheme.textMuted),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: TvTheme.textMuted,
+                  ),
                 ),
                 onTap: () {
                   tvState.setScaleMode(mode);
@@ -742,7 +828,12 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
 
   Widget _buildAudioTracksTab(Player? player) {
     if (player == null) {
-      return const Center(child: Text('Player not active', style: TextStyle(color: TvTheme.textMuted)));
+      return const Center(
+        child: Text(
+          'Player not active',
+          style: TextStyle(color: TvTheme.textMuted),
+        ),
+      );
     }
 
     final tracks = player.state.tracks.audio;
@@ -794,7 +885,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                 color: Colors.transparent,
                 child: ListTile(
                   leading: Icon(
-                    isSelected ? Icons.volume_up_rounded : Icons.audiotrack_rounded,
+                    isSelected
+                        ? Icons.volume_up_rounded
+                        : Icons.audiotrack_rounded,
                     color: isSelected ? TvTheme.primaryAccent : Colors.white54,
                   ),
                   title: Text(
@@ -807,7 +900,10 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                   ),
                   subtitle: Text(
                     desc.isNotEmpty ? desc : 'Audio Stream #${t.id}',
-                    style: const TextStyle(fontSize: 12, color: TvTheme.textMuted),
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: TvTheme.textMuted,
+                    ),
                   ),
                   onTap: () async {
                     await player.setAudioTrack(t);
@@ -823,7 +919,12 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
 
   Widget _buildSubtitlesTab(Player? player) {
     if (player == null) {
-      return const Center(child: Text('Player not active', style: TextStyle(color: TvTheme.textMuted)));
+      return const Center(
+        child: Text(
+          'Player not active',
+          style: TextStyle(color: TvTheme.textMuted),
+        ),
+      );
     }
 
     final tracks = player.state.tracks.subtitle;
@@ -851,7 +952,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                 : Colors.black.withValues(alpha: 0.25),
             borderRadius: BorderRadius.circular(10),
             border: Border.all(
-              color: currentTrack.id == 'no' ? TvTheme.primary : TvTheme.borderSubtle,
+              color: currentTrack.id == 'no'
+                  ? TvTheme.primary
+                  : TvTheme.borderSubtle,
               width: currentTrack.id == 'no' ? 1.5 : 1.0,
             ),
           ),
@@ -859,10 +962,21 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
             color: Colors.transparent,
             child: ListTile(
               leading: Icon(
-                currentTrack.id == 'no' ? Icons.radio_button_checked : Icons.radio_button_off,
-                color: currentTrack.id == 'no' ? TvTheme.primaryAccent : Colors.white54,
+                currentTrack.id == 'no'
+                    ? Icons.radio_button_checked
+                    : Icons.radio_button_off,
+                color: currentTrack.id == 'no'
+                    ? TvTheme.primaryAccent
+                    : Colors.white54,
               ),
-              title: const Text('Off (Subtitles Disabled)', style: TextStyle(fontSize: 14, color: Colors.white, fontWeight: FontWeight.bold)),
+              title: const Text(
+                'Off (Subtitles Disabled)',
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Colors.white,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
               onTap: () async {
                 await player.setSubtitleTrack(SubtitleTrack.no());
                 if (mounted) setState(() {});
@@ -900,7 +1014,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                 color: Colors.transparent,
                 child: ListTile(
                   leading: Icon(
-                    isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                    isSelected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_off,
                     color: isSelected ? TvTheme.primaryAccent : Colors.white54,
                   ),
                   title: Text(
@@ -912,8 +1028,13 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
                     ),
                   ),
                   subtitle: Text(
-                    st.language != null ? 'Language: ${st.language}' : 'Embedded Subtitle',
-                    style: const TextStyle(fontSize: 12, color: TvTheme.textMuted),
+                    st.language != null
+                        ? 'Language: ${st.language}'
+                        : 'Embedded Subtitle',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: TvTheme.textMuted,
+                    ),
                   ),
                   onTap: () async {
                     await player.setSubtitleTrack(st);
@@ -930,9 +1051,15 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
   Widget _buildBufferAndSpeedTab(TvStateProvider tvState, Player? player) {
     final bufferOptions = [
       {'bytes': 8 * 1024 * 1024, 'label': '8 MB (Low Latency / Live Sports)'},
-      {'bytes': 32 * 1024 * 1024, 'label': '32 MB (Standard / TiviMate Recommended)'},
+      {
+        'bytes': 32 * 1024 * 1024,
+        'label': '32 MB (Standard / TiviMate Recommended)',
+      },
       {'bytes': 64 * 1024 * 1024, 'label': '64 MB (Large / Anti-Stutter)'},
-      {'bytes': 128 * 1024 * 1024, 'label': '128 MB (Maximum Buffer / Slow Networks)'},
+      {
+        'bytes': 128 * 1024 * 1024,
+        'label': '128 MB (Maximum Buffer / Slow Networks)',
+      },
     ];
 
     final speedOptions = [0.75, 1.0, 1.25, 1.5, 2.0];
@@ -1001,7 +1128,9 @@ class _StreamSettingsDialogState extends State<StreamSettingsDialog> {
               color: Colors.transparent,
               child: ListTile(
                 leading: Icon(
-                  isSelected ? Icons.check_circle_rounded : Icons.circle_outlined,
+                  isSelected
+                      ? Icons.check_circle_rounded
+                      : Icons.circle_outlined,
                   color: isSelected ? TvTheme.primaryAccent : Colors.white54,
                   size: 20,
                 ),

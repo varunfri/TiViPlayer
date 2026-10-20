@@ -14,19 +14,24 @@ class RecordingScheduler {
   RecordingScheduler._init();
 
   final DatabaseService _db = DatabaseService.instance;
-  final StreamRecordingService _streamRecorder = StreamRecordingService.instance;
+  final StreamRecordingService _streamRecorder =
+      StreamRecordingService.instance;
 
   Timer? _schedulerTimer;
   bool _isChecking = false;
+  bool _disposed = false;
 
   /// Initializes the scheduler, repairs stale recordings from previous runs, and starts heartbeat.
   Future<void> initialize() async {
+    _disposed = false;
     await _recoverStaleRecordings();
+    if (_disposed) return;
     _startSchedulerHeartbeat();
   }
 
   void _startSchedulerHeartbeat() {
     _schedulerTimer?.cancel();
+    if (_disposed) return;
     _schedulerTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       checkAndTriggerScheduledRecordings();
     });
@@ -48,11 +53,17 @@ class RecordingScheduler {
           final bytes = exists ? await file.length() : 0;
 
           if (bytes > 0) {
-            await _db.updateRecordingFileAndStatus(item.id!, item.filePath, 'completed', bytes);
+            await _db.updateRecordingFileAndStatus(
+              item.id!,
+              item.filePath,
+              'completed',
+              bytes,
+            );
           } else {
             await _db.updateRecordingStatus(item.id!, 'failed');
           }
-        } else if (item.status == 'scheduled' && now.isAfter(item.effectiveEndTime)) {
+        } else if (item.status == 'scheduled' &&
+            now.isAfter(item.effectiveEndTime)) {
           // Missed schedule
           await _db.updateRecordingStatus(item.id!, 'failed');
         }
@@ -76,8 +87,11 @@ class RecordingScheduler {
 
         // Check 1: Scheduled items that need to start
         if (item.status == 'scheduled') {
-          if (now.isAfter(item.effectiveStartTime) && now.isBefore(item.effectiveEndTime)) {
-            debugPrint('[Scheduler] Triggering scheduled recording: "${item.programTitle}" on ${item.channelName}');
+          if (now.isAfter(item.effectiveStartTime) &&
+              now.isBefore(item.effectiveEndTime)) {
+            debugPrint(
+              '[Scheduler] Triggering scheduled recording: "${item.programTitle}" on ${item.channelName}',
+            );
             await _streamRecorder.startRecording(item);
           } else if (now.isAfter(item.effectiveEndTime)) {
             // Already past end time, mark failed/missed
@@ -86,9 +100,12 @@ class RecordingScheduler {
         }
 
         // Check 2: Active items that have reached their effective end time
-        if (item.status == 'recording' && _streamRecorder.isJobActive(item.id!)) {
+        if (item.status == 'recording' &&
+            _streamRecorder.isJobActive(item.id!)) {
           if (now.isAfter(item.effectiveEndTime)) {
-            debugPrint('[Scheduler] Ending completed recording: "${item.programTitle}" on ${item.channelName}');
+            debugPrint(
+              '[Scheduler] Ending completed recording: "${item.programTitle}" on ${item.channelName}',
+            );
             await _streamRecorder.stopRecording(item.id!);
           }
         }
@@ -107,7 +124,8 @@ class RecordingScheduler {
     Duration duration = const Duration(minutes: 60),
   }) async {
     final now = DateTime.now();
-    final endTime = currentProgram != null && currentProgram.endTime.isAfter(now)
+    final endTime =
+        currentProgram != null && currentProgram.endTime.isAfter(now)
         ? currentProgram.endTime
         : now.add(duration);
 
@@ -169,7 +187,8 @@ class RecordingScheduler {
     final savedItem = item.copyWith(id: id);
 
     // If start time is already due, start immediately
-    if (now.isAfter(savedItem.effectiveStartTime) && now.isBefore(savedItem.effectiveEndTime)) {
+    if (now.isAfter(savedItem.effectiveStartTime) &&
+        now.isBefore(savedItem.effectiveEndTime)) {
       await _streamRecorder.startRecording(savedItem);
     }
 
@@ -207,7 +226,9 @@ class RecordingScheduler {
   }
 
   void dispose() {
+    _disposed = true;
     _schedulerTimer?.cancel();
+    _schedulerTimer = null;
     _streamRecorder.dispose();
   }
 }

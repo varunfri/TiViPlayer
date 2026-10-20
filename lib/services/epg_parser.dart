@@ -104,7 +104,9 @@ class EpgParser {
   }
 
   /// Fetches EPG and also returns the effective URL or path that succeeded.
-  static Future<EpgFetchResult> fetchAndParseEpgWithResult(String urlOrPath) async {
+  static Future<EpgFetchResult> fetchAndParseEpgWithResult(
+    String urlOrPath,
+  ) async {
     final sanitized = sanitizeUrl(urlOrPath);
     if (sanitized.isEmpty) {
       return const EpgFetchResult(programs: [], effectiveUrlOrPath: '');
@@ -122,25 +124,32 @@ class EpgParser {
       for (final candidate in candidates) {
         try {
           final uri = Uri.parse(candidate);
-          final response = await http.get(
-            uri,
-            headers: {
-              'User-Agent': 'TiviMate/5.1.0 (Android TV; Linux; OKHttp/5.4.0)',
-              'Accept': '*/*',
-              'Accept-Encoding': 'gzip, deflate',
-            },
-          ).timeout(const Duration(seconds: 40));
+          final response = await http
+              .get(
+                uri,
+                headers: {
+                  'User-Agent':
+                      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+                  'Accept': '*/*',
+                  'Accept-Encoding': 'gzip, deflate',
+                },
+              )
+              .timeout(const Duration(seconds: 40));
 
           if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
             successfulResponse = response;
             workingUrl = candidate;
             if (candidate != sanitized) {
-              debugPrint('[EpgParser] Auto-recovered from 404 using fallback URL: $candidate');
+              debugPrint(
+                '[EpgParser] Auto-recovered from 404 using fallback URL: $candidate',
+              );
             }
             break;
           } else {
             lastErrorStatus = 'HTTP ${response.statusCode}';
-            debugPrint('[EpgParser] Candidate failed ($candidate): ${response.statusCode}');
+            debugPrint(
+              '[EpgParser] Candidate failed ($candidate): ${response.statusCode}',
+            );
           }
         } catch (e) {
           lastErrorStatus = '$e';
@@ -159,7 +168,9 @@ class EpgParser {
       effectivePath = workingUrl;
     } else {
       if (AppPlatform.isWeb) {
-        throw Exception('Local file paths are not supported on Web. Please provide an HTTP/HTTPS EPG URL.');
+        throw Exception(
+          'Local file paths are not supported on Web. Please provide an HTTP/HTTPS EPG URL.',
+        );
       }
       final file = File(sanitized);
       if (!await file.exists()) {
@@ -171,12 +182,16 @@ class EpgParser {
     // Auto-detect GZip compression by extension or magic header bytes (0x1F 0x8B)
     final xmlContent = decompressIfNeeded(rawBytes, effectivePath);
     final programs = parseXmlTv(xmlContent);
-    return EpgFetchResult(programs: programs, effectiveUrlOrPath: effectivePath);
+    return EpgFetchResult(
+      programs: programs,
+      effectiveUrlOrPath: effectivePath,
+    );
   }
 
   /// Auto-detects and decompresses GZip bytes if needed, returning the UTF-8 XML string.
   static String decompressIfNeeded(List<int> rawBytes, [String? pathOrUrl]) {
-    final isGzip = (rawBytes.length >= 2 && rawBytes[0] == 0x1F && rawBytes[1] == 0x8B) ||
+    final isGzip =
+        (rawBytes.length >= 2 && rawBytes[0] == 0x1F && rawBytes[1] == 0x8B) ||
         (pathOrUrl != null && pathOrUrl.toLowerCase().endsWith('.gz'));
 
     if (isGzip) {
@@ -204,13 +219,34 @@ class EpgParser {
       caseSensitive: false,
     );
 
-    final titleRegex = RegExp(r'<title[^>]*>(.*?)</title>', dotAll: true, caseSensitive: false);
-    final descRegex = RegExp(r'<desc[^>]*>(.*?)</desc>', dotAll: true, caseSensitive: false);
-    final catRegex = RegExp(r'<category[^>]*>(.*?)</category>', dotAll: true, caseSensitive: false);
+    final titleRegex = RegExp(
+      r'<title[^>]*>(.*?)</title>',
+      dotAll: true,
+      caseSensitive: false,
+    );
+    final descRegex = RegExp(
+      r'<desc[^>]*>(.*?)</desc>',
+      dotAll: true,
+      caseSensitive: false,
+    );
+    final catRegex = RegExp(
+      r'<category[^>]*>(.*?)</category>',
+      dotAll: true,
+      caseSensitive: false,
+    );
 
-    final attrChannelRegex = RegExp(r'channel=["\x27]([^"\x27]+)["\x27]', caseSensitive: false);
-    final attrStartRegex = RegExp(r'start=["\x27]([^"\x27]+)["\x27]', caseSensitive: false);
-    final attrStopRegex = RegExp(r'stop=["\x27]([^"\x27]+)["\x27]', caseSensitive: false);
+    final attrChannelRegex = RegExp(
+      r'channel=["\x27]([^"\x27]+)["\x27]',
+      caseSensitive: false,
+    );
+    final attrStartRegex = RegExp(
+      r'start=["\x27]([^"\x27]+)["\x27]',
+      caseSensitive: false,
+    );
+    final attrStopRegex = RegExp(
+      r'stop=["\x27]([^"\x27]+)["\x27]',
+      caseSensitive: false,
+    );
 
     final matches = programmeRegex.allMatches(xml);
 
@@ -230,7 +266,10 @@ class EpgParser {
       final startRaw = startMatch.group(1)?.trim();
       final stopRaw = stopMatch.group(1)?.trim();
 
-      if (channelId == null || channelId.isEmpty || startRaw == null || stopRaw == null) {
+      if (channelId == null ||
+          channelId.isEmpty ||
+          startRaw == null ||
+          stopRaw == null) {
         continue;
       }
 
@@ -257,14 +296,16 @@ class EpgParser {
         category = _unescapeXml(catMatch.group(1)!.trim());
       }
 
-      programs.add(EpgProgram(
-        channelTvgId: channelId,
-        title: title,
-        description: desc,
-        startTime: startTime,
-        endTime: stopTime,
-        category: category,
-      ));
+      programs.add(
+        EpgProgram(
+          channelTvgId: channelId,
+          title: title,
+          description: desc,
+          startTime: startTime,
+          endTime: stopTime,
+          category: category,
+        ),
+      );
     }
 
     return programs;

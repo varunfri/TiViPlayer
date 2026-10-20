@@ -15,6 +15,8 @@ class Channel {
   final String? drmType; // e.g. 'widevine', 'playready', 'clearkey'
   final String? drmLicenseUrl;
   final String? drmHeaders; // JSON-encoded key-value headers
+  final bool isLive;
+  final int? durationSeconds;
 
   Channel({
     this.id,
@@ -33,8 +35,11 @@ class Channel {
     this.drmType,
     this.drmLicenseUrl,
     this.drmHeaders,
+    this.isLive = true,
+    this.durationSeconds,
   });
 
+  bool get isVod => !isLive;
   bool get hasDrm => drmType != null && drmType!.isNotEmpty;
 
   /// Returns in-app player URL (e.g. https://server:5000/mpd/760?q=auto)
@@ -48,7 +53,9 @@ class Channel {
       if (tvgId != null && RegExp(r'^\d+$').hasMatch(tvgId!)) {
         id = tvgId;
       } else {
-        final match = RegExp(r'/(?:live/)?(?:mpd/)?(\d+)(?:\.m3u8|\.mpd)?(?:\?|$)').firstMatch(streamUrl);
+        final match = RegExp(
+          r'/(?:live/)?(?:mpd/)?(\d+)(?:\.m3u8|\.mpd)?(?:\?|$)',
+        ).firstMatch(streamUrl);
         id = match?.group(1);
       }
 
@@ -58,12 +65,16 @@ class Channel {
 
       // Never treat raw media stream manifests (.m3u8, .ts, .mpd) as an HTML web player page
       final lower = streamUrl.toLowerCase();
-      if (lower.contains('.m3u8') || lower.contains('.ts') || lower.contains('.mpd')) {
+      if (lower.contains('.m3u8') ||
+          lower.contains('.ts') ||
+          lower.contains('.mpd')) {
         return null;
       }
 
       if (u.scheme.startsWith('http') &&
-          (lower.contains('/player') || lower.contains('/play') || lower.contains('.html'))) {
+          (lower.contains('/player') ||
+              lower.contains('/play') ||
+              lower.contains('.html'))) {
         return streamUrl;
       }
     } catch (_) {}
@@ -80,7 +91,9 @@ class Channel {
       if (tvgId != null && RegExp(r'^\d+$').hasMatch(tvgId!)) {
         id = tvgId;
       } else {
-        final match = RegExp(r'/(?:live/)?(?:mpd/)?(\d+)(?:\.m3u8|\.mpd)?(?:\?|$)').firstMatch(streamUrl);
+        final match = RegExp(
+          r'/(?:live/)?(?:mpd/)?(\d+)(?:\.m3u8|\.mpd)?(?:\?|$)',
+        ).firstMatch(streamUrl);
         id = match?.group(1);
       }
 
@@ -90,12 +103,16 @@ class Channel {
 
       // Never treat raw media stream manifests (.m3u8, .ts, .mpd) as an HTML web player page
       final lower = streamUrl.toLowerCase();
-      if (lower.contains('.m3u8') || lower.contains('.ts') || lower.contains('.mpd')) {
+      if (lower.contains('.m3u8') ||
+          lower.contains('.ts') ||
+          lower.contains('.mpd')) {
         return null;
       }
 
       if (u.scheme.startsWith('http') &&
-          (lower.contains('/player') || lower.contains('/play') || lower.contains('.html'))) {
+          (lower.contains('/player') ||
+              lower.contains('/play') ||
+              lower.contains('.html'))) {
         return streamUrl;
       }
     } catch (_) {}
@@ -119,6 +136,8 @@ class Channel {
       'drm_type': drmType,
       'drm_license_url': drmLicenseUrl,
       'drm_headers': drmHeaders,
+      'is_live': isLive ? 1 : 0,
+      'duration_seconds': durationSeconds,
     };
   }
 
@@ -140,6 +159,8 @@ class Channel {
       drmType: map['drm_type'] as String?,
       drmLicenseUrl: map['drm_license_url'] as String?,
       drmHeaders: map['drm_headers'] as String?,
+      isLive: map['is_live'] == null ? true : (map['is_live'] as int) == 1,
+      durationSeconds: map['duration_seconds'] as int?,
     );
   }
 
@@ -160,6 +181,8 @@ class Channel {
     String? drmType,
     String? drmLicenseUrl,
     String? drmHeaders,
+    bool? isLive,
+    int? durationSeconds,
   }) {
     return Channel(
       id: id ?? this.id,
@@ -178,6 +201,8 @@ class Channel {
       drmType: drmType ?? this.drmType,
       drmLicenseUrl: drmLicenseUrl ?? this.drmLicenseUrl,
       drmHeaders: drmHeaders ?? this.drmHeaders,
+      isLive: isLive ?? this.isLive,
+      durationSeconds: durationSeconds ?? this.durationSeconds,
     );
   }
 }

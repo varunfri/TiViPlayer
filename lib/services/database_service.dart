@@ -91,6 +91,16 @@ class DatabaseService {
             );
           ''');
         } catch (_) {}
+        try {
+          await db.execute(
+            'ALTER TABLE channels ADD COLUMN is_live INTEGER DEFAULT 1;',
+          );
+        } catch (_) {}
+        try {
+          await db.execute(
+            'ALTER TABLE channels ADD COLUMN duration_seconds INTEGER DEFAULT -1;',
+          );
+        } catch (_) {}
       },
     );
   }
@@ -144,6 +154,8 @@ class DatabaseService {
         drm_type TEXT,
         drm_license_url TEXT,
         drm_headers TEXT,
+        is_live INTEGER DEFAULT 1,
+        duration_seconds INTEGER DEFAULT -1,
         FOREIGN KEY (playlist_id) REFERENCES playlists (id) ON DELETE CASCADE,
         FOREIGN KEY (group_id) REFERENCES channel_groups (id) ON DELETE CASCADE
       )

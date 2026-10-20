@@ -11,7 +11,8 @@ class RecordingItem {
   final int preRollMinutes;
   final int postRollMinutes;
   final String filePath;
-  final String status; // 'scheduled', 'recording', 'completed', 'cancelled', 'failed'
+  final String
+  status; // 'scheduled', 'recording', 'completed', 'cancelled', 'failed'
   final int bytesRecorded;
   final DateTime createdAt;
 
