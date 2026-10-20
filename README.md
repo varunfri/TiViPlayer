@@ -1,8 +1,8 @@
 # TiviPlayer TV - Modern Cross-Platform IPTV & Live TV Player
 
 [![Flutter](https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter)](https://flutter.dev)
-[![Platform](https://img.shields.io/badge/Platform-Android%20%7C%20Android%20TV%20%7C%20macOS%20%7C%20Web%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux-green)](#-supported-platforms)
-[![Release Workflow](https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=githubactions)](.github/workflows/release.yml)
+[![Platform](<https://img.shields.io/badge/Platform-Android%20%7C%20Android%20TV%20%7C%20macOS%20%7C%20Web%20%7C%20iOS%20%7C%20Windows%20%7C%20Linux-green>)](#-supported-platforms)
+[![Release Workflow](<https://img.shields.io/badge/CI%2FCD-GitHub%20Actions-blue?logo=githubactions>)](.github/workflows/release.yml)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 **TiviPlayer TV** (`tv_player_app`) is a high-performance, feature-rich IPTV, Live TV, and VOD player built with Flutter. Engineered specifically for a cinematic 10-foot TV experience (Android TV / Google TV / Fire TV) with full D-Pad remote control, while seamlessly responsive for desktop mouse/keyboard (macOS, Windows, Linux), touchscreens (Android Mobile, iOS), and modern web browsers (Chrome/Firefox/Safari via Shaka Player).
@@ -12,6 +12,7 @@
 ## 🌟 Key Features
 
 ### 📺 Multi-Engine Adaptive Video Player
+
 - **Cross-Platform Engine Isolation**:
   - **Android (Mobile & Android TV)**: Native Google ExoPlayer (Media3 1.9.2) with hardware-accelerated SurfaceView decoding, automatic progressive container (MP4, MKV, TS) vs. HLS format fallback, Cleartext IPTV streaming, and emulator loopback (`10.0.2.2`).
   - **macOS Desktop**: Ultra-low-latency `media_kit` powered by `libmpv` with hardware decoding and seamless In-App Web Player fallback.
@@ -28,6 +29,7 @@
 ---
 
 ### 🎬 Intelligent Live TV vs. VOD Stream Engine
+
 - **Playlist-Layer Heuristics**:
   - Parses `#EXTINF` duration attributes and category titles. Automatically tags streams with duration $> 0$ or VOD keywords as on-demand movies/series.
 - **RFC 8216 Manifest Prober (`HlsManifestProber`)**:
@@ -41,6 +43,7 @@
 ---
 
 ### 📅 Real-Time Electronic Program Guide (EPG)
+
 - **Live Show Progress in Channel Lists**:
   - Real-time display of active show title, schedule range (`08:00 PM - 09:30 PM`), countdown timer (`24m left`), and live progress bar.
 - **High-Performance In-Memory Indexing**:
@@ -55,6 +58,7 @@
 ---
 
 ### 📑 Flexible Playlist & Source Management
+
 - **M3U & M3U8 Multi-Variant Playlists**: Remote URLs, local storage files, and file picker imports.
 - **Xtream Codes API v2**: Native integration for Live streams, VOD movies, and TV Series.
 - **Automatic EPG Header Extraction**: Parses `url-tvg` and `x-tvg-url` directives directly from playlist headers.
@@ -64,6 +68,7 @@
 ---
 
 ### ⏺️ Live Stream Recording (DVR) & Scheduling
+
 - **Direct-to-Disk Stream Recording**: Background chunked MPEG-TS capture engine with live bitrate and MB counters.
 - **EPG Program Scheduler**: Schedule future recordings directly from the EPG guide to capture broadcasts automatically.
 - **DVR Library Manager**: View, play, monitor, and delete recorded programs from disk.
@@ -71,6 +76,7 @@
 ---
 
 ### 🔲 Picture-in-Picture (PiP)
+
 - **Android System-Wide PiP**: Video continues playing in an OS floating window when switching apps or pressing Home, complete with Play/Pause and Next Channel controls.
 - **Desktop Windowed PiP**: Resizable always-on-top floating window for desktop multitasking.
 
@@ -130,6 +136,7 @@ tv_player_app/
 ## 🚀 Getting Started
 
 ### Prerequisites
+
 - [Flutter SDK](https://docs.flutter.dev/get-started/install) ($\ge 3.12$)
 - [Android Studio / Android SDK](https://developer.android.com/studio) (for Android / Android TV builds)
 - Xcode (for macOS and iOS builds, with CocoaPods installed)
@@ -137,16 +144,16 @@ tv_player_app/
 ### Quick Setup
 
 1. **Clone the repository**:
+
    ```bash
    git clone https://github.com/your-username/tv_player_app.git
    cd tv_player_app
    ```
-
 2. **Fetch dependencies**:
+
    ```bash
    flutter pub get
    ```
-
 3. **Universal Automation CLI (`run.sh`)**:
    Use the workspace automation script for interactive debugging, building, and diagnostics:
 
@@ -179,30 +186,30 @@ tv_player_app/
 
 All interactive items feature high-contrast visual focus borders (`TvTheme.focusedBorder`) optimized for Android TV remotes and keyboard navigation:
 
-| Shortcut / Button | Scope | Action |
-| :--- | :--- | :--- |
-| `Space` / `K` | Global | Toggle Play / Pause |
-| `M` | Global | Toggle Audio Mute / Unmute |
-| `+` / `=` / `]` | Global | Volume Up (+5%) |
-| `-` / `[` | Global | Volume Down (-5%) |
-| `F` / `F11` | Global | Toggle Fullscreen (auto-rotates orientation on mobile) |
-| `Cmd+F` / `Ctrl+F` / `/` | Global | Focus Channel & EPG Search |
-| `C` | Global | Toggle Bottom Channel Drawer / Quick Switcher |
-| `G` / `E` / `Tab` | Global | Toggle Horizontal EPG Timeline Guide Overlay |
-| `V` | Global | Cycle View Mode (Side-by-Side $\rightarrow$ Overlay $\rightarrow$ Fullscreen) |
-| `A` | Global | Cycle Aspect Ratio (`Contain`, `Cover`, `16:9`, `4:3`, `Fit Width`, `Fit Height`) |
-| `P` | Global | Toggle Picture-in-Picture (System PiP on Android / Windowed on macOS) |
-| `R` | Global | Open Recordings & DVR Scheduler Screen |
-| `O` / `Cmd+,` | Global | Open Stream Settings & Buffer Configuration Dialog |
-| `B` / `D` | Global | Bookmark / Toggle Active Channel as Favorite |
-| `J` / `Rewind` | VOD | Seek Backward 10 Seconds |
-| `L` / `Fast Forward` | VOD | Seek Forward 10 Seconds |
-| `PageUp` / `PageDown` / `N` | Global | Jump to Previous / Next Channel |
-| `Up` / `Down` Arrow | Playing | Jump to Previous / Next Channel |
-| `Left` / `Right` Arrow | Playing | VOD Seek $\pm 10\text{s}$ (VOD) or Volume Adjust (Live TV) |
-| `Enter` / `Select` / `I` | Playing | Trigger OSD Controls & Channel Information Banner |
-| `0` – `9` | Global | Direct Numeric Channel Number Zapping |
-| `Esc` / `Remote Back` | Global | **Dismiss Hierarchy**: Drawer $\rightarrow$ OSD $\rightarrow$ Fullscreen $\rightarrow$ PiP $\rightarrow$ Exit |
+| Shortcut / Button                 | Scope   | Action                                                                                                                      |
+| :-------------------------------- | :------ | :-------------------------------------------------------------------------------------------------------------------------- |
+| `Space` / `K`                 | Global  | Toggle Play / Pause                                                                                                         |
+| `M`                             | Global  | Toggle Audio Mute / Unmute                                                                                                  |
+| `+` / `=` / `]`             | Global  | Volume Up (+5%)                                                                                                             |
+| `-` / `[`                     | Global  | Volume Down (-5%)                                                                                                           |
+| `F` / `F11`                   | Global  | Toggle Fullscreen (auto-rotates orientation on mobile)                                                                      |
+| `Cmd+F` / `Ctrl+F` / `/`    | Global  | Focus Channel & EPG Search                                                                                                  |
+| `C`                             | Global  | Toggle Bottom Channel Drawer / Quick Switcher                                                                               |
+| `G` / `E` / `Tab`           | Global  | Toggle Horizontal EPG Timeline Guide Overlay                                                                                |
+| `V`                             | Global  | Cycle View Mode (Side-by-Side$\rightarrow$ Overlay $\rightarrow$ Fullscreen)                                            |
+| `A`                             | Global  | Cycle Aspect Ratio (`Contain`, `Cover`, `16:9`, `4:3`, `Fit Width`, `Fit Height`)                               |
+| `P`                             | Global  | Toggle Picture-in-Picture (System PiP on Android / Windowed on macOS)                                                       |
+| `R`                             | Global  | Open Recordings & DVR Scheduler Screen                                                                                      |
+| `O` / `Cmd+,`                 | Global  | Open Stream Settings & Buffer Configuration Dialog                                                                          |
+| `B` / `D`                     | Global  | Bookmark / Toggle Active Channel as Favorite                                                                                |
+| `J` / `Rewind`                | VOD     | Seek Backward 10 Seconds                                                                                                    |
+| `L` / `Fast Forward`          | VOD     | Seek Forward 10 Seconds                                                                                                     |
+| `PageUp` / `PageDown` / `N` | Global  | Jump to Previous / Next Channel                                                                                             |
+| `Up` / `Down` Arrow           | Playing | Jump to Previous / Next Channel                                                                                             |
+| `Left` / `Right` Arrow        | Playing | VOD Seek$\pm 10\text{s}$ (VOD) or Volume Adjust (Live TV)                                                                 |
+| `Enter` / `Select` / `I`    | Playing | Trigger OSD Controls & Channel Information Banner                                                                           |
+| `0` – `9`                    | Global  | Direct Numeric Channel Number Zapping                                                                                       |
+| `Esc` / `Remote Back`         | Global  | **Dismiss Hierarchy**: Drawer $\rightarrow$ OSD $\rightarrow$ Fullscreen $\rightarrow$ PiP $\rightarrow$ Exit |
 
 ---
 
@@ -215,9 +222,10 @@ All interactive items feature high-contrast visual focus borders (`TvTheme.focus
 
 ---
 
-## 🤖 Continuous Integration & Automated Releases
+* [ ] 🤖 Continuous Integration & Automated Releases
 
-Automated releases are handled via GitHub Actions in [`.github/workflows/release.yml`](.github/workflows/release.yml). Pushing any version tag (e.g., `git tag v1.0.0 && git push origin v1.0.0`) triggers parallel matrix builds:
+Automated releases are handled via GitHub Actions in [`.github/workflows/release.yml`](.github/workflows/release.yml). Publishing a new Release on GitHub (or manual trigger from the Actions tab) triggers parallel matrix builds:
+
 - **Android**: Release APKs split by ABI (`arm64-v8a`, `armeabi-v7a`, `x86_64`) + Universal APK.
 - **macOS**: Signed `.dmg` disk image installer packaged directly with `hdiutil`.
 - **Web**: Production-ready static distribution bundle (`.zip`).

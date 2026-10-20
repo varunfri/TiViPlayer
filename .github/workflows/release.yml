@@ -1,9 +1,8 @@
 name: Release TiviPlayer TV
 
 on:
-  push:
-    tags:
-      - 'v*' # Triggers on tags like v1.0.0, v1.2.3
+  release:
+    types: [published]
   workflow_dispatch: # Allows manual trigger from Actions tab
 
 permissions:
@@ -46,7 +45,7 @@ jobs:
 
       - name: Prepare APK Artifact
         run: |
-          TAG_NAME="${{ github.ref_name }}"
+          TAG_NAME="${{ github.event.release.tag_name || github.ref_name }}"
           [ -z "$TAG_NAME" ] && TAG_NAME="manual"
           mkdir -p release-artifacts
           cp build/app/outputs/flutter-apk/app-release.apk release-artifacts/TiviPlayer-${TAG_NAME}-android.apk
@@ -82,7 +81,7 @@ jobs:
 
       - name: Package macOS DMG Installer
         run: |
-          TAG_NAME="${{ github.ref_name }}"
+          TAG_NAME="${{ github.event.release.tag_name || github.ref_name }}"
           [ -z "$TAG_NAME" ] && TAG_NAME="manual"
           
           APP_PATH=$(find build/macos/Build/Products/Release -name "*.app" -maxdepth 1 | head -n 1)
@@ -137,7 +136,7 @@ jobs:
 
       - name: Package Web Distribution
         run: |
-          TAG_NAME="${{ github.ref_name }}"
+          TAG_NAME="${{ github.event.release.tag_name || github.ref_name }}"
           [ -z "$TAG_NAME" ] && TAG_NAME="manual"
           mkdir -p release-artifacts
           cd build/web
@@ -173,11 +172,9 @@ jobs:
           echo "Release Assets:"
           ls -lh all-artifacts/
 
-      - name: Create GitHub Release
+      - name: Attach Assets to GitHub Release
         uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
         with:
+          tag_name: ${{ github.event.release.tag_name || github.ref_name }}
           files: all-artifacts/*
           generate_release_notes: true
-          draft: false
-          prerelease: false
